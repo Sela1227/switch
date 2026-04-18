@@ -138,6 +138,7 @@ def return_borrow(borrow_id: str):
 def get_config():
     return {"ok": True}
 
+# ── 一般搜尋（無 Claude Key 時使用）────────────────────────────────────────
 @app.get("/api/search")
 async def search_games(q: str):
     api_key = os.getenv("RAWG_API_KEY", "")
@@ -145,51 +146,75 @@ async def search_games(q: str):
     url = f"https://api.rawg.io/api/games?search={q}&platforms=7&page_size=12{key_param}"
     async with httpx.AsyncClient() as client:
         res = await client.get(url, timeout=10)
-    return res.json()
+    data = res.json()
+    return {"results": data.get("results", []), "selected": q}
 
-@app.post("/api/translate")
-async def translate_query(request: Request):
-    body = await request.json()
-    query = body.get("query", "").strip()
+# ── 兩段式智慧搜尋（有 Claude Key 時使用）────────────────────────────────
+@app.get("/api/smart-search")
+async def smart_search(q: str, request: Request):
     claude_key = request.headers.get("x-claude-key", "")
-    if not claude_key or not query:
-        return {"result": query}
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": claude_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 60,
-                    "system": (
-                        "你是一位資深的 Nintendo Switch 玩家，熟悉各種遊戲的官方名稱。"
-                        "你的任務是將使用者輸入的遊戲名稱，轉換成 RAWG 資料庫中使用的正確官方英文遊戲名稱，方便進行搜尋。\n\n"
-                        "規則：\n"
-                        "1. 若輸入已經是正確的英文官方遊戲名稱，原樣回傳，不要修改\n"
-                        "2. 若輸入是中文、日文或其他語言，找出對應的官方英文名稱\n"
-                        "3. 若輸入是暱稱或簡稱（如「薩爾達」、「瑪利歐賽車」），推斷最可能的正式系列作品名稱\n"
-                        "4. 只回傳遊戲英文名稱，不要加任何解釋、標點或換行\n\n"
-                        "重要範例（請嚴格遵守這些翻譯）：\n"
-                        "勇者鬥惡龍 7 重製版 / 重置版 / Reimagined → Dragon Quest VII Reimagined\n"
-                        "瑪利歐賽車世界 → Mario Kart World\n"
-                        "薩爾達傳說王國之淚 → The Legend of Zelda Tears of the Kingdom\n"
-                        "寶可夢朱 / 紫 → Pokemon Scarlet / Pokemon Violet\n"
-                        "斯普拉遁 3 → Splatoon 3"
-                    ),
-                    "messages": [{"role": "user", "content": query}]
-                },
-                timeout=10
-            )
-        data = res.json()
-        result = data.get("content", [{}])[0].get("text", query).strip()
-        return {"result": result}
-    except Exception:
-        return {"result": query}
+    api_key    = os.getenv("RAWG_API_KEY", "")
+    key_param  = f"&key={api_key}" if api_key else ""
+
+    async with httpx.AsyncClient() as client:
+        # Step 1：先不加平台篩選，取前 8 筆候選
+        r1 = await client.get(
+            f"https://api.rawg.io/api/games?search={q}&page_size=8{key_param}",
+            timeout=10
+        )
+    candidates = r1.json().get("results", [])
+
+    if not candidates:
+        return {"results": [], "selected": q}
+
+    # Step 2：若有 Claude Key，讓 Claude 從候選中選出最符合的
+    selected = candidates[0]["name"]  # 預設第一筆
+    if claude_key:
+        names_list = "\n".join(f"- {r['name']}" for r in candidates)
+        try:
+            async with httpx.AsyncClient() as client:
+                cr = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": claude_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-haiku-4-5-20251001",
+                        "max_tokens": 80,
+                        "system": (
+                            "你是 Nintendo Switch 玩家助理。"
+                            "根據使用者的搜尋意圖，從 RAWG 的候選遊戲清單中，選出最符合的一個。"
+                            "只回傳清單中的完整遊戲名稱，不加任何說明或標點。"
+                        ),
+                        "messages": [{
+                            "role": "user",
+                            "content": f"使用者搜尋：{q}\n\nRAWG 候選清單：\n{names_list}\n\n請選出最符合的遊戲名稱："
+                        }]
+                    },
+                    timeout=10
+                )
+            picked = cr.json().get("content", [{}])[0].get("text", "").strip()
+            # 確認 Claude 回傳的名稱確實在候選清單中
+            if any(picked == r["name"] for r in candidates):
+                selected = picked
+        except Exception:
+            pass
+
+    # Step 3：用選出的名稱加 Switch 平台篩選再搜一次
+    async with httpx.AsyncClient() as client:
+        r2 = await client.get(
+            f"https://api.rawg.io/api/games?search={selected}&platforms=7&page_size=12{key_param}",
+            timeout=10
+        )
+    results = r2.json().get("results", [])
+
+    # 若加平台篩選後沒結果，退回不篩選的候選清單
+    if not results:
+        results = candidates
+
+    return {"results": results, "selected": selected}
 
 import os.path
 if os.path.isdir("frontend/dist"):

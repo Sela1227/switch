@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const VERSION = "V1.1.3";
+const VERSION = "V1.2.0";
 
 // ── API helpers ───────────────────────────────────────────────────────────
 async function api(path, { method = "GET", body, pin } = {}) {
@@ -11,17 +11,13 @@ async function api(path, { method = "GET", body, pin } = {}) {
   return res.json();
 }
 
-async function translateQuery(query, claudeKey) {
-  if (!claudeKey || !query.trim()) return query;
-  try {
-    const res = await fetch("/api/translate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-claude-key": claudeKey },
-      body: JSON.stringify({ query })
-    });
-    const data = await res.json();
-    return data.result || query;
-  } catch { return query; }
+async function smartSearch(query, claudeKey) {
+  const headers = { "Content-Type": "application/json" };
+  if (claudeKey) headers["x-claude-key"] = claudeKey;
+  const endpoint = claudeKey ? "/api/smart-search" : "/api/search";
+  const res = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`, { headers });
+  if (!res.ok) throw new Error("search failed");
+  return res.json(); // { results, selected }
 }
 
 const today = () => new Date().toISOString().split("T")[0];
@@ -43,7 +39,6 @@ export default function App() {
   const [selBorrow, setSelBorrow] = useState(null);
 
   const [query, setQuery]         = useState("");
-  const [translating, setTranslating] = useState(false);
   const [translatedQ, setTranslatedQ] = useState("");
   const [results, setResults]     = useState([]);
   const [searching, setSearching] = useState(false);
@@ -89,18 +84,10 @@ export default function App() {
   async function doSearch() {
     if (!query.trim()) return;
     setSearching(true); setResults([]); setSearchErr(""); setTranslatedQ("");
-    const key = claudeKey();
-    let searchQuery = query;
-    if (key) {
-      setTranslating(true);
-      searchQuery = await translateQuery(query, key);
-      setTranslatedQ(searchQuery !== query ? searchQuery : "");
-      setTranslating(false);
-    }
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-      if (!res.ok) throw new Error();
-      setResults((await res.json()).results || []);
+      const data = await smartSearch(query, claudeKey());
+      setResults(data.results || []);
+      if (data.selected && data.selected !== query) setTranslatedQ(data.selected);
     } catch { setSearchErr("搜尋失敗，請確認網路連線"); }
     setSearching(false);
   }
@@ -288,8 +275,8 @@ export default function App() {
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input style={S.input} placeholder="遊戲名稱（中文或英文）" value={query}
               onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && doSearch()} />
-            <button style={S.searchBtn} onClick={doSearch} disabled={searching || translating}>
-              {translating ? "翻譯中…" : searching ? "搜尋…" : "搜尋"}
+            <button style={S.searchBtn} onClick={doSearch} disabled={searching}>
+              {searching ? "搜尋中…" : "搜尋"}
             </button>
           </div>
           {claudeKey() && <div style={{ fontSize: 11, color: "#4ade80", marginBottom: 6 }}>✓ Claude AI 輔助翻譯已啟用</div>}
