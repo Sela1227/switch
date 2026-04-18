@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.7";
+const VERSION = "V1.10.8";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -150,7 +150,12 @@ export default function App() {
   const [editForm, setEditForm]   = useState({ number: "", funRating: "", name: "", ownedPlatform: "" });
   const [saving, setSaving]       = useState(false);
   const [showAllHist, setShowAllHist] = useState(false);
-  const [addTab, setAddTab]       = useState("search"); // "search" | "manual"
+  const [addTab, setAddTab]       = useState("search");
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const [coverSearchQ, setCoverSearchQ]       = useState("");
+  const [coverResults, setCoverResults]       = useState([]);
+  const [coverSearching, setCoverSearching]   = useState(false);
+  const coverImgRef = useRef(null);
   const [manualForm, setManualForm] = useState({ name:"", released:"", genres:"" });
   const [manualCover, setManualCover] = useState(null); // base64
   const imgRef = useRef(null);
@@ -309,6 +314,50 @@ export default function App() {
       await api(`/api/borrows/${selBorrow.id}/return`, { method: "PATCH", pin: adminPin() });
       await loadAll(); setModal(null);
     } catch { alert("歸還失敗"); }
+  }
+
+  async function updateCover(gameId, coverUrl) {
+    try {
+      await api(`/api/games/${gameId}`, { method:"PATCH", pin:adminPin(), body:{ cover: coverUrl } });
+      await loadAll();
+      setShowCoverPicker(false); setCoverSearchQ(""); setCoverResults([]);
+    } catch { alert("更新封面失敗"); }
+  }
+
+  async function doCoverSearch(q) {
+    if (!q.trim()) return;
+    setCoverSearching(true); setCoverResults([]);
+    const plat = selGame ? (() => {
+      const p = PLATFORMS.find(p => p.slugs?.some(s => selGame.ownedPlatform?.startsWith(s)));
+      return p?.rawg || "all";
+    })() : "all";
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&platform=${plat}`);
+      const data = await res.json();
+      setCoverResults(data.results || []);
+    } catch {}
+    setCoverSearching(false);
+  }
+
+  async function handleCoverImgUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !selGame) return;
+    e.target.value = "";
+    const base64 = await new Promise(resolve => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const max = 400;
+        const ratio = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * ratio; canvas.height = img.height * ratio;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = url;
+    });
+    await updateCover(selGame.id, base64);
   }
 
   async function deleteBorrow(id) {
@@ -672,20 +721,63 @@ export default function App() {
         const g    = games.find(x => x.id === selGame.id) || selGame;
         const gameSlugs = (g.platforms || []).filter(s => MAJOR_SLUGS.includes(s));
         return (
-          <Modal title="遊戲資訊" onClose={() => setModal(null)}>
-            {/* 封面 - 較小，橫式 */}
-            {g.cover && (
-              <div style={{ display:"flex", gap:12, marginBottom:12, alignItems:"flex-start" }}>
-                <img src={g.cover} style={{ height:100, objectFit:"contain", borderRadius:6, flexShrink:0 }} alt="" />
-                <div style={{ flex:1, minWidth:0, paddingTop:4 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#e2e2e8", lineHeight:1.4, marginBottom:4 }}>{g.name}</div>
-                  {g.genres?.length > 0 && (
-                    <div style={{ display:"flex", gap:3, flexWrap:"wrap", marginBottom:4 }}>
-                      {g.genres.map(gn => <span key={gn} style={{ background:"#1e1e2e", color:"#888", fontSize:10, padding:"2px 7px", borderRadius:8 }}>{gZh(gn)}</span>)}
-                    </div>
-                  )}
-                  {g.released && <div style={{ fontSize:10, color:"#555" }}>{g.released}</div>}
+          <Modal title="遊戲資訊" onClose={() => { setModal(null); setShowCoverPicker(false); setCoverResults([]); }}>
+            {/* 封面 + 更換按鈕 */}
+            <div style={{ display:"flex", gap:12, marginBottom:12, alignItems:"flex-start" }}>
+              <div style={{ position:"relative", flexShrink:0 }}>
+                {g.cover
+                  ? <img src={g.cover} style={{ height:100, objectFit:"contain", borderRadius:6, display:"block" }} alt="" />
+                  : <div style={{ width:70, height:100, background:"#1a1a24", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#333" }}>🎮</div>
+                }
+                <button onClick={() => { setShowCoverPicker(v=>!v); setCoverSearchQ(g.name); setCoverResults([]); }}
+                  style={{ position:"absolute", bottom:0, right:0, background:"rgba(0,0,0,0.8)", border:"1px solid #444", color:"#ddd", fontSize:10, padding:"2px 5px", borderRadius:4, cursor:"pointer", lineHeight:1.4 }}>
+                  ✎ 換
+                </button>
+              </div>
+              <div style={{ flex:1, minWidth:0, paddingTop:4 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:"#e2e2e8", lineHeight:1.4, marginBottom:4 }}>{g.name}</div>
+                {g.genres?.length > 0 && (
+                  <div style={{ display:"flex", gap:3, flexWrap:"wrap", marginBottom:4 }}>
+                    {g.genres.map(gn => <span key={gn} style={{ background:"#1e1e2e", color:"#888", fontSize:10, padding:"2px 7px", borderRadius:8 }}>{gZh(gn)}</span>)}
+                  </div>
+                )}
+                {g.released && <div style={{ fontSize:10, color:"#555" }}>{g.released}</div>}
+              </div>
+            </div>
+
+            {/* 換封面 Panel */}
+            {showCoverPicker && (
+              <div style={{ background:"#1a1a24", borderRadius:10, padding:"10px 12px", marginBottom:12, border:"1px solid #2a2a38" }}>
+                <div style={{ fontSize:11, color:"#888", marginBottom:8 }}>更換封面 — 搜尋或上傳</div>
+                <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+                  <input style={{ ...S.input, padding:"7px 10px", fontSize:13, flex:1 }}
+                    placeholder="輸入遊戲名稱搜尋封面"
+                    value={coverSearchQ} onChange={e => setCoverSearchQ(e.target.value)}
+                    onKeyDown={e => e.key==="Enter" && doCoverSearch(coverSearchQ)} />
+                  <button style={{ ...S.searchBtn, minHeight:38, fontSize:13 }}
+                    onClick={() => doCoverSearch(coverSearchQ)} disabled={coverSearching}>
+                    {coverSearching?"…":"搜"}
+                  </button>
+                  <button onClick={() => coverImgRef.current?.click()}
+                    style={{ background:"#2a2a38", border:"none", color:"#aaa", borderRadius:9, padding:"0 10px", cursor:"pointer", fontSize:16, minHeight:38 }}>
+                    📁
+                  </button>
+                  <input ref={coverImgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverImgUpload} />
                 </div>
+                {/* 搜尋結果 */}
+                {coverResults.length > 0 && (
+                  <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4 }}>
+                    {coverResults.filter(r=>r.background_image).slice(0,8).map(r => (
+                      <div key={r.id} style={{ flexShrink:0, cursor:"pointer" }} onClick={() => updateCover(g.id, r.background_image)}>
+                        <img src={r.background_image}
+                          style={{ width:60, height:84, objectFit:"cover", borderRadius:5, border:"2px solid transparent", display:"block" }}
+                          onMouseOver={e => e.target.style.borderColor="#e60012"}
+                          onMouseOut={e => e.target.style.borderColor="transparent"} alt={r.name} />
+                        <div style={{ fontSize:8, color:"#666", width:60, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:2 }}>{r.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -78,6 +78,7 @@ class GameUpdate(BaseModel):
     fun_rating: Optional[int] = None
     name: Optional[str] = None
     owned_platform: Optional[str] = None
+    cover: Optional[str] = None
 
 class BorrowIn(BaseModel):
     id: str; game_id: str; borrower_name: str
@@ -114,6 +115,7 @@ def update_game(game_id: str, g: GameUpdate):
     if g.fun_rating is not None: conn.execute("UPDATE games SET fun_rating=? WHERE id=?",(g.fun_rating,game_id))
     if g.name is not None and g.name.strip(): conn.execute("UPDATE games SET name=? WHERE id=?",(g.name.strip(),game_id))
     if g.owned_platform is not None: conn.execute("UPDATE games SET owned_platform=? WHERE id=?",(g.owned_platform or None,game_id))
+    if g.cover is not None: conn.execute("UPDATE games SET cover=? WHERE id=?",(g.cover,game_id))
     conn.commit(); conn.close()
     return {"ok": True}
 
