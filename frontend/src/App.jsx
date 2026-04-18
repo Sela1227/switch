@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.5";
+const VERSION = "V1.10.6";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -891,11 +891,6 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
           : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:micro?14:22, color:"#2a2a3a" }}>🎮</div>
         }
-        {/* 左上：編號 - 正方形藍底白框白字 */}
-        {game.number != null && game.number !== "" && (
-          <div style={{
-            position:"absolute", top:micro?2:4, left:micro?2:4, zIndex:2,
-            background:"#1d4ed8", border:"1.5px solid rgba(255,255,255,0.8)",
         {/* 左上：編號 - 正方形藍底 */}
         {game.number != null && game.number !== "" && (
           <div style={{
