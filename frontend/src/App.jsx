@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.17";
+const VERSION = "V1.13.18";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -388,11 +388,12 @@ export default function App() {
   async function addGameFromGamer(r) {
     const name = cleanGameName(r.zh_name);
     const id = `gamer_${r.gamer_sn || Date.now()}`;
+    const ownedPlat = PLAT_DEFAULT_SLUG[searchPlatform] || "nintendo-switch";
     try {
       await api("/api/games", { method:"POST", pin:adminPin(), body:{
         id, name, cover: r.cover_url || null,
         genres: [], platforms: [], released: null,
-        owned_platform: null, user_id: myUserId(), base_game_id: id
+        owned_platform: ownedPlat, user_id: myUserId(), base_game_id: id
       }});
       await loadAll();
     } catch { alert("新增失敗"); }
