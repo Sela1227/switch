@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.7.0";
+const VERSION = "V1.8.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -126,7 +126,7 @@ export default function App() {
   const [collFilter, setCollFilter] = useState("all");
   const [wallPlatform, setWallPlatform] = useState(() => localStorage.getItem("svWallPlat") || "all");
   const [sortBy, setSortBy]   = useState(() => localStorage.getItem("svSort") || "default");
-  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "small");
+  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "medium");
 
   const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
   const [editForm, setEditForm]   = useState({ number: "", funRating: "" });
@@ -502,45 +502,46 @@ export default function App() {
               const selLabel = PLAT_SLUG_LABEL[sel] || sel;
               return (
                 <div key={r.id} style={S.resultCard}>
-                  {/* 封面 */}
-                  {r.background_image
-                    ? <img src={r.background_image} style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: "10px 10px 0 0", display: "block" }} alt="" />
-                    : <div style={{ width: "100%", aspectRatio: "16/9", background: "#1a1a24", borderRadius: "10px 10px 0 0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#333" }}>🎮</div>
-                  }
-                  {/* 資訊 */}
-                  <div style={{ padding: "10px 12px" }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#e2e2e8", marginBottom: 2 }}>{r.name}</div>
-                    <div style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>
-                      {r.genres?.slice(0,3).map(g => g.name).join(" · ")}
-                      {r.released && <span style={{ color: "#555" }}> · {r.released?.slice(0,4)}</span>}
+                  <div style={{ display: "flex" }}>
+                    {/* 封面 2:3（盒裝封面） */}
+                    <div style={{ width: 88, flexShrink: 0, background: "#111", borderRadius: "10px 0 0 10px", overflow: "hidden", display: "flex", alignItems: "stretch" }}>
+                      {r.background_image
+                        ? <img src={r.background_image} style={{ width: "100%", objectFit: "cover", display: "block" }} alt="" />
+                        : <div style={{ width: "100%", minHeight: 124, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: "#333" }}>🎮</div>
+                      }
                     </div>
-                    {/* 版本選擇 */}
-                    {slugs.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10, color: "#555", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>我的版本</div>
-                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {/* 資訊 */}
+                    <div style={{ flex: 1, padding: "10px 12px", minWidth: 0, display: "flex", flexDirection: "column" }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#e2e2e8", marginBottom: 3, lineHeight: 1.3 }}>{r.name}</div>
+                      <div style={{ fontSize: 10, color: "#666", marginBottom: 6 }}>
+                        {r.genres?.slice(0,2).map(g => g.name).join(" · ")}
+                        {r.released && <span style={{ color: "#555" }}> · {r.released?.slice(0,4)}</span>}
+                      </div>
+                      {/* 版本選擇 */}
+                      {slugs.length > 0 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8, flex: 1 }}>
                           {slugs.map(s => (
                             <button key={s}
                               style={{ background: sel===s?"#e60012":"#2a2a38", border: "none", color: sel===s?"#fff":"#aaa",
-                                       padding: "5px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer",
-                                       fontWeight: sel===s?700:400, minHeight: 32 }}
+                                       padding: "3px 9px", borderRadius: 12, fontSize: 11, cursor: "pointer",
+                                       fontWeight: sel===s?700:400, minHeight: 26, touchAction: "manipulation" }}
                               onClick={() => setResultPlatforms(prev => ({...prev, [r.id]: s}))}>
                               {PLAT_SLUG_LABEL[s] || s}
                             </button>
                           ))}
                         </div>
-                      </div>
-                    )}
-                    {/* 加入按鈕 */}
-                    <button style={S.redBtn} onClick={() => addGame(r, sel)}>
-                      ＋ 加入收藏{sel ? ` (${selLabel})` : ""}
-                    </button>
+                      )}
+                      <button style={{ ...S.redBtn, fontSize: 12, padding: "8px", minHeight: 36 }}
+                        onClick={() => addGame(r, sel)}>
+                        ＋ 加入{sel ? ` (${selLabel})` : ""}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#444", textAlign: "center" }}>封面資料：RAWG.io</div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#444", textAlign: "center" }}>封面資料：IGDB / RAWG</div>
         </Modal>
       )}
 
@@ -659,8 +660,16 @@ export default function App() {
           <input style={{ ...S.input, fontFamily:"monospace", fontSize:14, marginBottom:8 }}
             placeholder="sk-ant-..." value={settingsForm.claudeKey}
             onChange={e => setSettingsForm(f => ({ ...f, claudeKey: e.target.value }))} />
-          <div style={{ background:"#1a1a24", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#555", marginBottom:16 }}>
-            💡 設定後，中文搜尋會自動轉換為正確英文遊戲名稱
+          <div style={{ background:"#1a1a24", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#555", marginBottom:20 }}>
+            💡 設定後可使用中文搜尋、拍照辨識功能
+          </div>
+          <div style={{ background:"#0a1a0a", border:"1px solid #1a3a1a", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
+            <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:6 }}>🎨 IGDB 封面庫（直式高品質封面）</div>
+            <div style={{ fontSize:11, color:"#555", lineHeight:1.6 }}>
+              在 Railway → Variables 新增：<br/>
+              <code style={{ color:"#888" }}>IGDB_CLIENT_ID</code> 和 <code style={{ color:"#888" }}>IGDB_CLIENT_SECRET</code><br/>
+              申請：<span style={{ color:"#4ade80" }}>dev.twitch.tv</span> → 建立 App → 取得 Client ID + Secret
+            </div>
           </div>
           <button style={S.redBtn} onClick={() => { localStorage.setItem("svClaudeKey", settingsForm.claudeKey); setModal(null); }}>儲存設定</button>
         </Modal>
@@ -676,7 +685,7 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
   const ownedLabel = game.ownedPlatform ? (PLAT_SLUG_LABEL[game.ownedPlatform] || null) : null;
   return (
     <div style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent" }} onClick={onClick}>
-      <div style={{ position:"relative", width:"100%", paddingBottom:"62.5%", background:"#1a1a24", borderRadius: small?6:8, overflow:"hidden" }}>
+      <div style={{ position:"relative", width:"100%", paddingBottom:"150%", background:"#1a1a24", borderRadius: small?6:8, overflow:"hidden" }}>
         {game.cover
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
           : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize: small?18:26, color:"#333" }}>🎮</div>
