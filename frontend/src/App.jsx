@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.8";
+const VERSION = "V1.10.9";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -100,6 +100,8 @@ async function smartSearch(query, claudeKey, platform) {
 const today = () => new Date().toISOString().split("T")[0];
 function isOverdue(b) { return !b.returnedAt && new Date(b.expectedReturn) < new Date(); }
 function daysDiff(d) { return Math.floor((new Date() - new Date(d)) / 86400000); }
+const SELA_LOGO = "data:image/png;base64,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";
+
 const GENRE_ZH = {
   "Action": "動作", "Adventure": "冒險", "RPG": "角色扮演",
   "Role Playing Games": "角色扮演", "Strategy": "策略", "Simulation": "模擬",
@@ -113,7 +115,7 @@ const GENRE_ZH = {
 };
 const gZh = (name) => GENRE_ZH[name] || name;
 
-const GRID_COLS = { large: 4, medium: 6, small: 8, mini: 12 };
+const GRID_COLS = { large: 6, medium: 9, small: 12 };
 
 // ── App ───────────────────────────────────────────────────────────────────
 export default function App() {
@@ -144,7 +146,7 @@ export default function App() {
   const [collFilter, setCollFilter] = useState("all");
   const [wallPlatform, setWallPlatform] = useState(() => localStorage.getItem("svWallPlat") || "all");
   const [sortBy, setSortBy]   = useState(() => localStorage.getItem("svSort") || "default");
-  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "small");
+  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "medium");
 
   const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
   const [editForm, setEditForm]   = useState({ number: "", funRating: "", name: "", ownedPlatform: "" });
@@ -454,21 +456,23 @@ export default function App() {
   );
 
   const cols = GRID_COLS[gridSize] || 4;
-  const isCompact = cols >= 8; // small/mini
+  const isCompact = cols >= 9;
 
   return (
     <div style={S.app}>
       {/* Header */}
       <header style={S.header}>
-        <div style={{ display:"flex", alignItems:"center", gap:5, minWidth:0, overflow:"hidden" }}>
-          <span style={{ fontSize:18, flexShrink:0 }}>🎮</span>
-          <span style={{ fontWeight:900, fontSize:13, letterSpacing:1, color:"#fff", textTransform:"uppercase", whiteSpace:"nowrap" }}>SWITCH VAULT</span>
-          <span style={{ fontSize:9, color:"#444", fontFamily:"monospace", flexShrink:0 }}>{VERSION}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, overflow:"hidden" }}>
+          <img src={SELA_LOGO} style={{ width:32, height:32, borderRadius:6, flexShrink:0 }} alt="SELA" />
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:900, fontSize:13, color:"#fff", whiteSpace:"nowrap", lineHeight:1.2 }}>SELA 遊戲管理</div>
+            <div style={{ fontSize:10, color:"#aaa", whiteSpace:"nowrap", lineHeight:1.2 }}>租借系統 <span style={{ color:"#f97316", fontFamily:"monospace", fontWeight:700 }}>{VERSION}</span></div>
+          </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
           {/* 格大小 */}
           <div style={{ display:"flex", background:"#1a1a24", borderRadius:6, overflow:"hidden", border:"1px solid #2a2a38" }}>
-            {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
+            {[["large","大"],["medium","中"],["small","小"]].map(([s,l]) => (
               <button key={s} onClick={() => setGrid(s)}
                 style={{ background:gridSize===s?"#e60012":"transparent", border:"none",
                          color:gridSize===s?"#fff":"#555", padding:"5px 7px", fontSize:12,
@@ -729,7 +733,7 @@ export default function App() {
                   ? <img src={g.cover} style={{ height:100, objectFit:"contain", borderRadius:6, display:"block" }} alt="" />
                   : <div style={{ width:70, height:100, background:"#1a1a24", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#333" }}>🎮</div>
                 }
-                <button onClick={() => { setShowCoverPicker(v=>!v); setCoverSearchQ(g.name); setCoverResults([]); }}
+                <button onClick={() => { setShowCoverPicker(true); setCoverSearchQ(g.name); setCoverResults([]); }}
                   style={{ position:"absolute", bottom:0, right:0, background:"rgba(0,0,0,0.8)", border:"1px solid #444", color:"#ddd", fontSize:10, padding:"2px 5px", borderRadius:4, cursor:"pointer", lineHeight:1.4 }}>
                   ✎ 換
                 </button>
@@ -745,43 +749,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 換封面 Panel */}
-            {showCoverPicker && (
-              <div style={{ background:"#1a1a24", borderRadius:10, padding:"10px 12px", marginBottom:12, border:"1px solid #2a2a38" }}>
-                <div style={{ fontSize:11, color:"#888", marginBottom:8 }}>更換封面 — 搜尋或上傳</div>
-                <div style={{ display:"flex", gap:6, marginBottom:8 }}>
-                  <input style={{ ...S.input, padding:"7px 10px", fontSize:13, flex:1 }}
-                    placeholder="輸入遊戲名稱搜尋封面"
-                    value={coverSearchQ} onChange={e => setCoverSearchQ(e.target.value)}
-                    onKeyDown={e => e.key==="Enter" && doCoverSearch(coverSearchQ)} />
-                  <button style={{ ...S.searchBtn, minHeight:38, fontSize:13 }}
-                    onClick={() => doCoverSearch(coverSearchQ)} disabled={coverSearching}>
-                    {coverSearching?"…":"搜"}
-                  </button>
-                  <button onClick={() => coverImgRef.current?.click()}
-                    style={{ background:"#2a2a38", border:"none", color:"#aaa", borderRadius:9, padding:"0 10px", cursor:"pointer", fontSize:16, minHeight:38 }}>
-                    📁
-                  </button>
-                  <input ref={coverImgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverImgUpload} />
-                </div>
-                {/* 搜尋結果 */}
-                {coverResults.length > 0 && (
-                  <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4 }}>
-                    {coverResults.filter(r=>r.background_image).slice(0,8).map(r => (
-                      <div key={r.id} style={{ flexShrink:0, cursor:"pointer" }} onClick={() => updateCover(g.id, r.background_image)}>
-                        <img src={r.background_image}
-                          style={{ width:60, height:84, objectFit:"cover", borderRadius:5, border:"2px solid transparent", display:"block" }}
-                          onMouseOver={e => e.target.style.borderColor="#e60012"}
-                          onMouseOut={e => e.target.style.borderColor="transparent"} alt={r.name} />
-                        <div style={{ fontSize:8, color:"#666", width:60, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:2 }}>{r.name}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── 編輯區（全部塞在一個緊湊盒子）── */}
+            {/* ── 編輯區 ── */}
             <div style={{ background:"#1a1a24", borderRadius:10, padding:"10px 12px", marginBottom:10, display:"flex", flexDirection:"column", gap:8 }}>
 
               {/* 名稱 */}
@@ -894,6 +862,42 @@ export default function App() {
           </Modal>
         );
       })()}
+
+      {/* 換封面 Modal */}
+      {showCoverPicker && selGame && (
+        <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); }}>
+          <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+            <input style={{ ...S.input, padding:"8px 10px", fontSize:14, flex:1 }}
+              placeholder="輸入遊戲名稱搜尋封面"
+              value={coverSearchQ} onChange={e => setCoverSearchQ(e.target.value)}
+              onKeyDown={e => e.key==="Enter" && doCoverSearch(coverSearchQ)} />
+            <button style={{ ...S.searchBtn, fontSize:14 }}
+              onClick={() => doCoverSearch(coverSearchQ)} disabled={coverSearching}>
+              {coverSearching?"…":"搜"}
+            </button>
+          </div>
+          <button onClick={() => coverImgRef.current?.click()}
+            style={{ display:"block", width:"100%", background:"#1a1a24", border:"1px dashed #333", color:"#aaa", padding:"10px", borderRadius:10, fontSize:13, cursor:"pointer", marginBottom:12, touchAction:"manipulation" }}>
+            📁 從相簿上傳圖片
+          </button>
+          <input ref={coverImgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverImgUpload} />
+          {coverResults.length > 0 && (
+            <div>
+              <div style={S.fieldLabel}>點選封面套用</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
+                {coverResults.filter(r=>r.background_image).slice(0,8).map(r => (
+                  <div key={r.id} style={{ cursor:"pointer" }} onClick={() => updateCover(selGame.id, r.background_image)}>
+                    <img src={r.background_image}
+                      style={{ width:"100%", aspectRatio:"2/3", objectFit:"cover", borderRadius:6, border:"2px solid #2a2a38", display:"block" }}
+                      alt={r.name} />
+                    <div style={{ fontSize:9, color:"#666", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
 
       {modal === "borrow" && selGame && (
         <Modal title="登記借出" onClose={() => setModal("gameDetail")}>
