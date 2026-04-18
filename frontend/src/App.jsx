@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.18";
+const VERSION = "V1.13.19";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -224,7 +224,8 @@ export default function App() {
     setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
     // 直接搜巴哈（中文輸入最直接）
     try {
-      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(query)}`);
+      const platParam = searchPlatform && searchPlatform !== 'all' ? `&platform=${PLATFORMS.find(p=>p.rawg===searchPlatform)?.id||'all'}` : '';
+      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(query)}${platParam}`);
       const data = await res.json();
       setResults(data.results || []);
       if (!data.results?.length) setSearchErr("巴哈商城找不到，試試其他關鍵字");

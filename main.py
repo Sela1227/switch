@@ -442,28 +442,32 @@ def clean_gamer_name(raw: str) -> str:
     return raw.strip()
 
 async def get_acg_detail(acg_sn: str, client: httpx.AsyncClient) -> dict:
-    """從 acgDetail 頁面取正確的遊戲名稱和封面"""
+    """從 acgDetail 頁面取正確的遊戲名稱、封面和平台"""
     try:
         url = f"https://acg.gamer.com.tw/acgDetail.php?s={acg_sn}"
         res = await client.get(url, headers=GAMER_HEADERS, timeout=8)
         soup = BeautifulSoup(res.text, "html.parser")
-        # 取遊戲名：h1 或 .ACG-name 或 og:title
         name = ""
         og_title = soup.find("meta", property="og:title")
         if og_title: name = og_title.get("content","").strip()
         if not name:
             h1 = soup.find("h1")
             if h1: name = h1.get_text(strip=True)
-        # 取封面：og:image 最可靠
         cover = ""
         og_img = soup.find("meta", property="og:image")
         if og_img: cover = og_img.get("content","").strip()
         if not cover:
-            # 用 sn 組合封面 URL
             cover = await find_acg_cover(int(acg_sn), client)
-        return {"name": name, "cover": cover}
+        # 取主機平台
+        platform = ""
+        for li in soup.find_all("li"):
+            txt = li.get_text()
+            if "主機平台" in txt:
+                platform = txt.replace("主機平台：","").replace("主機平台:","").strip()
+                break
+        return {"name": name, "cover": cover, "platform": platform}
     except:
-        return {"name": "", "cover": ""}
+        return {"name": "", "cover": "", "platform": ""}
     """從 atmItem 頁面找到對應的 ACG sn（封面用）"""
     try:
         url = f"https://buy.gamer.com.tw/atmItem.php?sn={sn}"
@@ -481,8 +485,93 @@ async def get_acg_detail(acg_sn: str, client: httpx.AsyncClient) -> dict:
     return None
 
 @app.get("/api/gamer-search")
-async def gamer_search(q: str):
+async def gamer_search(q: str, platform: str = "all"):
     """搜尋巴哈 ACG 資料庫，回傳多筆結果"""
+    if not q.strip():
+        return {"results": []}
+    from urllib.parse import quote as url_quote
+
+    # 平台關鍵字對應（加進搜尋詞提升準確度）
+    PLAT_KW = {"switch": "Switch", "ps": "PlayStation", "xbox": "Xbox", "pc": "PC"}
+    plat_kw = PLAT_KW.get(platform.lower(), "")
+    # 平台過濾字串（過濾 acgDetail 回傳的平台欄位）
+    PLAT_FILTER = {
+        "switch": ["Switch", "switch", "NS", "NS2", "Nintendo"],
+        "ps":     ["PlayStation", "PS5", "PS4", "PS3"],
+        "xbox":   ["Xbox"],
+        "pc":     ["Windows", "PC", "Steam"],
+    }
+    plat_filter = PLAT_FILTER.get(platform.lower(), [])
+
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+
+            # 策略 1：acg.gamer.com.tw 找作品資料庫
+            search_q = q
+            acg_url = f"https://acg.gamer.com.tw/search.php?keyword={url_quote(search_q)}&page=1"
+            res = await client.get(acg_url, headers=GAMER_HEADERS)
+            print(f"[gamer-search] ACG status={res.status_code} q={search_q!r} plat={platform}")
+            soup = BeautifulSoup(res.text, "html.parser")
+            acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+            print(f"[gamer-search] acg_links={len(acg_links)}")
+
+            # 策略 2：buy.gamer.com.tw 商城搜尋
+            if not acg_links:
+                buy_url = f"https://buy.gamer.com.tw/search.php?kw={url_quote(q)}"
+                res2 = await client.get(buy_url, headers=GAMER_HEADERS)
+                soup = BeautifulSoup(res2.text, "html.parser")
+                acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+                print(f"[gamer-search] buy acg_links={len(acg_links)}")
+
+            # 從 acgDetail 連結逐個取名稱、封面、平台
+            seen = set()
+            for lk in acg_links[:8]:
+                m = re.search(r's=(\d+)', lk.get("href",""))
+                if not m: continue
+                acg_sn = m.group(1)
+                if acg_sn in seen: continue
+                seen.add(acg_sn)
+
+                detail = await get_acg_detail(acg_sn, client)
+                raw = lk.get("title","") or lk.get_text(strip=True)
+                name = clean_gamer_name(detail.get("name","") or raw)
+                cover = detail.get("cover","") or await find_acg_cover(int(acg_sn), client)
+                det_plat = detail.get("platform","")
+
+                # 平台過濾：有選平台時，排除不符合的結果
+                if plat_filter and det_plat:
+                    if not any(kw.lower() in det_plat.lower() for kw in plat_filter):
+                        print(f"[gamer-search] skip sn={acg_sn} plat={det_plat!r}")
+                        continue
+
+                print(f"[gamer-search] sn={acg_sn} name={name!r} plat={det_plat!r} cover={bool(cover)}")
+                if name and len(name) > 1:
+                    results.append({"zh_name": name, "cover_url": cover, "gamer_sn": acg_sn, "platform": det_plat})
+
+            # 策略 3：buy.gamer.com.tw atmItem 連結
+            if not results and plat_filter:
+                buy_url2 = f"https://buy.gamer.com.tw/search.php?kw={url_quote(q)}"
+                res3 = await client.get(buy_url2, headers=GAMER_HEADERS)
+                soup3 = BeautifulSoup(res3.text, "html.parser")
+                atm_links = soup3.find_all("a", href=lambda h: h and "atmItem" in str(h))
+                seen2 = set()
+                for lk in atm_links[:6]:
+                    m = re.search(r'sn=(\d+)', lk.get("href",""))
+                    if not m or m.group(1) in seen2: continue
+                    seen2.add(m.group(1))
+                    raw = lk.get("title","") or lk.get_text(strip=True)
+                    name = clean_gamer_name(raw)
+                    if not name or len(name) < 2: continue
+                    acg_sn = await get_acg_sn_from_atm(m.group(1), client)
+                    cover = await find_acg_cover(int(acg_sn), client) if acg_sn else ""
+                    results.append({"zh_name": name, "cover_url": cover, "gamer_sn": m.group(1)})
+
+    except Exception as e:
+        print(f"[gamer-search] ERROR: {e}")
+
+    print(f"[gamer-search] final results={len(results)}")
+    return {"results": results}
     if not q.strip():
         return {"results": []}
     from urllib.parse import quote as url_quote
