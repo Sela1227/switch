@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.9";
+const VERSION = "V1.13.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -1414,6 +1414,9 @@ export default function App() {
 function GamerCrawlSection({ adminPin }) {
   const [stats, setStats] = useState(null);
   const [crawling, setCrawling] = useState(false);
+  const [testQ, setTestQ] = useState("Luigi's Mansion 3");
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     fetch("/api/gamer-stats").then(r=>r.json()).then(setStats).catch(()=>{});
@@ -1435,6 +1438,17 @@ function GamerCrawlSection({ adminPin }) {
     setCrawling(false);
   }
 
+  async function doTest() {
+    if (!testQ.trim()) return;
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(testQ)}`);
+      const data = await res.json();
+      setTestResult(data);
+    } catch { setTestResult({ error: "連線失敗" }); }
+    setTesting(false);
+  }
+
   return (
     <div style={{ marginTop:14, background:"#0d1a0d", border:"1px solid #1a3a1a", borderRadius:10, padding:"10px 12px" }}>
       <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:6 }}>
@@ -1448,15 +1462,50 @@ function GamerCrawlSection({ adminPin }) {
           ))}
         </div>
       )}
+
+      {/* 即時搜尋測試 */}
+      <div style={{ marginBottom:10, background:"#111", borderRadius:8, padding:"8px 10px" }}>
+        <div style={{ fontSize:10, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:0.5 }}>測試即時搜尋</div>
+        <div style={{ display:"flex", gap:5, marginBottom:6 }}>
+          <input value={testQ} onChange={e=>setTestQ(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&doTest()}
+            style={{ flex:1, background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:7, padding:"5px 8px", color:"#ddd", fontSize:12, outline:"none" }}
+            placeholder="輸入英文遊戲名測試..." />
+          <button onClick={doTest} disabled={testing}
+            style={{ background:"#1d4ed8", border:"none", color:"#fff", padding:"5px 10px", borderRadius:7, fontSize:11, cursor:"pointer", fontWeight:700 }}>
+            {testing?"…":"測試"}
+          </button>
+        </div>
+        {testResult && (
+          <div style={{ fontSize:11 }}>
+            {testResult.error
+              ? <span style={{ color:"#f87171" }}>❌ {testResult.error}</span>
+              : testResult.zh_name
+                ? (<>
+                    <div style={{ color:"#4ade80", marginBottom:4 }}>✅ 找到中文名：<strong>{testResult.zh_name}</strong></div>
+                    {testResult.cover_url
+                      ? (<div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <img src={testResult.cover_url} style={{ width:40, height:56, objectFit:"cover", borderRadius:5 }}
+                            onError={e=>e.target.style.display="none"} alt="" />
+                          <span style={{ color:"#4ade80", fontSize:10 }}>✅ 封面抓到了</span>
+                        </div>)
+                      : <span style={{ color:"#fbbf24" }}>⚠️ 找到名稱但沒有封面 URL</span>
+                    }
+                  </>)
+              : <span style={{ color:"#fbbf24" }}>⚠️ 沒找到（將改用 Claude 翻譯）</span>
+            }
+          </div>
+        )}
+      </div>
+
       <div style={{ fontSize:11, color:"#555", marginBottom:8, lineHeight:1.5 }}>
-        從巴哈商城爬取中文遊戲名稱，加入收藏時自動對應。<br/>
-        首次使用請點「執行爬蟲」，之後每月更新一次即可。
+        從巴哈商城爬取中文遊戲名稱，加入收藏時自動對應。
       </div>
       <button onClick={doCrawl} disabled={crawling}
         style={{ background: crawling?"#1a2a1a":"#16a34a", border:"none", color:"#fff",
                  padding:"8px 14px", borderRadius:8, fontSize:12, fontWeight:700,
                  cursor: crawling?"not-allowed":"pointer", width:"100%" }}>
-        {crawling ? "🔄 爬蟲執行中（約1-2分鐘）..." : "🕷 執行巴哈商城爬蟲"}
+        {crawling ? "🔄 爬蟲執行中..." : "🕷 執行巴哈商城爬蟲（更新名稱庫）"}
       </button>
     </div>
   );
