@@ -9,11 +9,9 @@ async function api(path, { method = "GET", body, pin } = {}) {
   return res.json();
 }
 
-const RAWG = "https://api.rawg.io/api";
-async function searchRAWG(query, apiKey) {
-  const key = apiKey ? `&key=${apiKey}` : "";
-  const res = await fetch(`${RAWG}/games?search=${encodeURIComponent(query)}&platforms=7&page_size=12${key}`);
-  if (!res.ok) throw new Error("RAWG search failed");
+async function searchRAWG(query) {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error("search failed");
   return (await res.json()).results || [];
 }
 
@@ -78,7 +76,7 @@ export default function App() {
   async function doSearch() {
     if (!query.trim()) return;
     setSearching(true); setResults([]); setSearchErr("");
-    try { setResults(await searchRAWG(query, rawgKey)); }
+    try { setResults(await searchRAWG(query)); }
     catch { setSearchErr("搜尋失敗，請確認網路連線"); }
     setSearching(false);
   }

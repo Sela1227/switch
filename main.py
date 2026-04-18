@@ -126,10 +126,22 @@ def return_borrow(borrow_id: str):
     conn.close()
     return {"ok": True}
 
-# ── Settings（供前端讀取 RAWG key，避免明碼存前端）────────────────────────
+# ── Settings（供前端讀取設定）────────────────────────────────────────────
 @app.get("/api/config")
 def get_config():
-    return {"rawgApiKey": os.getenv("RAWG_API_KEY", "")}
+    return {"rawgApiKey": ""}
+
+# ── RAWG 搜尋代理（避免瀏覽器 CORS 問題）────────────────────────────────
+import httpx
+
+@app.get("/api/search")
+async def search_games(q: str):
+    api_key = os.getenv("RAWG_API_KEY", "")
+    key_param = f"&key={api_key}" if api_key else ""
+    url = f"https://api.rawg.io/api/games?search={q}&platforms=7&page_size=12{key_param}"
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, timeout=10)
+    return res.json()
 
 # ── Serve React build（放最後，避免遮蓋 API 路由）────────────────────────
 import os.path

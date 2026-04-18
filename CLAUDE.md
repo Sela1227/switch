@@ -205,7 +205,7 @@ def init_db():
 | 項目 | 位址 |
 |------|------|
 | GitHub Repo | https://github.com/Sela1227/switch |
-| Railway URL | （部署後補上） |
+| Railway URL | https://switch-production-13a3.up.railway.app |
 
 ---
 
