@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.3";
+const VERSION = "V1.13.4";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -141,6 +141,7 @@ export default function App() {
   const [translatedQ, setTranslatedQ] = useState("");
   const [results, setResults]         = useState([]);
   const [catalogResults, setCatalogResults] = useState([]);
+  const [gamerResult, setGamerResult] = useState(null);
   const [resultPlatforms, setResultPlatforms] = useState({});
   const [searching, setSearching]     = useState(false);
   const [searchErr, setSearchErr]     = useState("");
@@ -220,38 +221,37 @@ export default function App() {
 
   async function doSearch() {
     if (!query.trim()) return;
-    setSearching(true); setResults([]); setCatalogResults([]); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
+    setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
     const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
-    // Step 1：先查共用目錄
-    try {
-      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`);
-      const catData = await catRes.json();
-      setCatalogResults(catData || []);
-    } catch {}
-    // Step 2：再從網路搜尋
-    try {
-      const data = await smartSearch(query, claudeKey(), plat);
-      setResults(data.results || []);
-      if (data.selected && data.selected !== query) setTranslatedQ(data.selected);
-    } catch { setSearchErr("搜尋失敗，請確認網路連線"); }
+    // 同時打三個來源
+    const [catData, netData, gamerData] = await Promise.allSettled([
+      fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`).then(r=>r.json()),
+      smartSearch(query, claudeKey(), plat),
+      fetch(`/api/gamer-search?q=${encodeURIComponent(query)}`).then(r=>r.json()),
+    ]);
+    if (catData.status==="fulfilled") setCatalogResults(catData.value || []);
+    if (netData.status==="fulfilled") {
+      setResults(netData.value.results || []);
+      if (netData.value.selected && netData.value.selected !== query) setTranslatedQ(netData.value.selected);
+    } else { setSearchErr("搜尋失敗，請確認網路連線"); }
+    if (gamerData.status==="fulfilled" && gamerData.value?.zh_name) setGamerResult(gamerData.value);
     setSearching(false);
   }
 
   async function doDirectSearch(customQ) {
     if (!customQ.trim()) return;
-    setSearching(true); setResults([]); setCatalogResults([]); setSearchErr(""); setShowManualQ(false);
+    setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setShowManualQ(false);
     const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
     const platParam = plat && plat !== "all" ? `&platform=${plat}` : "&platform=all";
-    try {
-      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(customQ)}&user_id=${myUserId()}`);
-      setCatalogResults(await catRes.json() || []);
-    } catch {}
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(customQ)}${platParam}`);
-      const data = await res.json();
-      setResults(data.results || []);
-      setTranslatedQ(customQ !== query ? customQ : "");
-    } catch { setSearchErr("搜尋失敗"); }
+    const [catData, netData, gamerData] = await Promise.allSettled([
+      fetch(`/api/catalog?q=${encodeURIComponent(customQ)}&user_id=${myUserId()}`).then(r=>r.json()),
+      fetch(`/api/search?q=${encodeURIComponent(customQ)}${platParam}`).then(r=>r.json()),
+      fetch(`/api/gamer-search?q=${encodeURIComponent(customQ)}`).then(r=>r.json()),
+    ]);
+    if (catData.status==="fulfilled") setCatalogResults(catData.value || []);
+    if (netData.status==="fulfilled") { setResults(netData.value.results || []); setTranslatedQ(customQ !== query ? customQ : ""); }
+    else { setSearchErr("搜尋失敗"); }
+    if (gamerData.status==="fulfilled" && gamerData.value?.zh_name) setGamerResult(gamerData.value);
     setSearching(false);
   }
 
@@ -452,7 +452,7 @@ export default function App() {
   }
 
   function closeAddGame() {
-    setModal(null); setQuery(""); setResults([]); setCatalogResults([]); setSearchErr("");
+    setModal(null); setQuery(""); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr("");
     setTranslatedQ(""); setShowManualQ(false);
     setAddTab("search"); setManualForm({ name:"", released:"", genres:"" }); setManualCover(null);
   }
@@ -914,6 +914,45 @@ export default function App() {
               </div>
             )}
             {searchErr && <div style={{ color:"#f87171", fontSize:12, marginBottom:8 }}>{searchErr}</div>}
+
+            {/* ── 巴哈商城（最優先，有中文名＋封面）── */}
+            {gamerResult && (
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:10, color:"#f97316", fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", marginBottom:5 }}>
+                  🏪 巴哈商城
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1000", borderRadius:10, padding:"8px 10px", border:"1px solid #3a2000" }}>
+                  <div style={{ width:44, height:62, flexShrink:0, borderRadius:5, overflow:"hidden", background:"#111" }}>
+                    {gamerResult.cover_url
+                      ? <img src={gamerResult.cover_url} style={{ width:"100%", height:"100%", objectFit:"contain" }} alt="" />
+                      : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", marginBottom:2 }}>{cleanGameName(gamerResult.zh_name)}</div>
+                    <div style={{ fontSize:10, color:"#f97316" }}>巴哈商城官方中文名稱</div>
+                  </div>
+                  <button onClick={async () => {
+                    const slugs = (results[0]?.platforms||[]).map(p=>p.platform.slug) || [];
+                    const sel = resultPlatforms[results[0]?.id] || slugs[0] || "";
+                    const base = results[0];
+                    if (base) {
+                      await api("/api/games", { method:"POST", pin:adminPin(), body:{
+                        id: String(base.id), name: cleanGameName(gamerResult.zh_name),
+                        cover: gamerResult.cover_url || base.background_image,
+                        genres: base.genres?.map(x=>x.name)||[], rating: base.rating,
+                        platforms: slugs, released: base.released||null,
+                        owned_platform: sel||null, user_id: myUserId(), base_game_id: String(base.id)
+                      }});
+                      await loadAll();
+                      closeAddGame();
+                    }
+                  }}
+                    style={{ background:"#f97316", border:"none", color:"#fff", borderRadius:8, padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0 }}>
+                    ＋ 加入
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ── 收藏庫（優先）── */}
             {catalogResults.length > 0 && (
