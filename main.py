@@ -304,6 +304,39 @@ async def smart_search(q: str, platform: str = "7", request: Request = None):
 
     return {"results": results, "selected": search_query}
 
+@app.post("/api/identify-game")
+async def identify_game(request: Request):
+    claude_key = request.headers.get("x-claude-key", "")
+    body = await request.json()
+    image_data = body.get("image", "")
+    media_type = body.get("mediaType", "image/jpeg")
+    if not claude_key or not image_data:
+        return {"name": ""}
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": claude_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 60,
+                    "system": (
+                        "你是遊戲辨識助理，專門辨識遊戲卡帶、遊戲盒、遊戲截圖。"
+                        "根據圖片識別出遊戲的官方英文名稱。"
+                        "只回傳英文遊戲名稱，不加任何說明或標點。"
+                    ),
+                    "messages": [{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_data}},
+                        {"type": "text", "text": "這是什麼遊戲？請回傳官方英文遊戲名稱。"}
+                    ]}]
+                },
+                timeout=30
+            )
+        name = res.json().get("content", [{}])[0].get("text", "").strip()
+        return {"name": name}
+    except Exception:
+        return {"name": ""}
+
 import os.path
 if os.path.isdir("frontend/dist"):
     app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")

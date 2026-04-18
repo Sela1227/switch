@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.6.0";
+const VERSION = "V1.7.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -119,6 +119,8 @@ export default function App() {
   const [searchPlatform, setSearchPlatform] = useState("7");
   const [manualQ, setManualQ]         = useState("");
   const [showManualQ, setShowManualQ] = useState(false);
+  const [identifying, setIdentifying] = useState(false);
+  const cameraRef = useRef(null);
 
   const [borrowForm, setBorrowForm] = useState({ name: "", borrowDate: today(), expectedReturn: "" });
   const [collFilter, setCollFilter] = useState("all");
@@ -195,7 +197,54 @@ export default function App() {
     setSearching(false);
   }
 
-  async function addGame(r, ownedPlatform) {
+  async function handleCamera(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setIdentifying(true); setResults([]); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
+    try {
+      // 壓縮圖片（max 1024px，避免傳太大）
+      const base64 = await new Promise((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const max = 1024;
+          const ratio = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * ratio;
+          canvas.height = img.height * ratio;
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+        };
+        img.src = url;
+      });
+      const res = await fetch("/api/identify-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-claude-key": claudeKey() },
+        body: JSON.stringify({ image: base64, mediaType: "image/jpeg" })
+      });
+      const data = await res.json();
+      if (data.name) {
+        setQuery(data.name);
+        setIdentifying(false);
+        // 直接用辨識到的名稱搜尋
+        setSearching(true);
+        const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
+        const platParam = plat && plat !== "all" ? `&platform=${plat}` : "&platform=all";
+        const r2 = await fetch(`/api/search?q=${encodeURIComponent(data.name)}${platParam}`);
+        const d2 = await r2.json();
+        setResults(d2.results || []);
+        setTranslatedQ(data.name);
+        setSearching(false);
+      } else {
+        setSearchErr("辨識失敗，請手動輸入遊戲名稱");
+      }
+    } catch {
+      setSearchErr("辨識失敗，請手動輸入遊戲名稱");
+    }
+    setIdentifying(false);
+  }
     const platformSlugs = (r.platforms || []).map(p => p.platform.slug);
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
@@ -394,14 +443,28 @@ export default function App() {
             </div>
           </div>
 
-          {/* 搜尋框 */}
+          {/* 搜尋框 + 拍照 */}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input style={S.input} placeholder="遊戲名稱（中文或英文）" value={query}
               onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && doSearch()} />
-            <button style={S.searchBtn} onClick={doSearch} disabled={searching}>
+            {claudeKey() && (
+              <button style={{ ...S.searchBtn, background: "#2a2a38", fontSize: 18, padding: "0 12px" }}
+                onClick={() => cameraRef.current?.click()} disabled={identifying} title="拍照辨識">
+                {identifying ? "⏳" : "📷"}
+              </button>
+            )}
+            <button style={S.searchBtn} onClick={doSearch} disabled={searching || identifying}>
               {searching ? "…" : "搜尋"}
             </button>
           </div>
+          {/* 隱藏的 camera input */}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+            style={{ display: "none" }} onChange={handleCamera} />
+          {identifying && (
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 8, textAlign: "center" }}>
+              📷 AI 辨識中，請稍候...
+            </div>
+          )}
 
           {/* 翻譯結果 */}
           {claudeKey() && <div style={{ fontSize: 11, color: "#4ade80", marginBottom: 4 }}>✓ Claude AI 輔助已啟用</div>}
