@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.6";
+const VERSION = "V1.10.7";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -868,6 +868,7 @@ export default function App() {
 function GameCard({ game, borrow, overdue, onClick, cols }) {
   const micro = cols >= 12;
   const small = cols >= 8;
+  const medium = cols >= 6;
   const ownedLabel = game.ownedPlatform ? (PLAT_SLUG_LABEL[game.ownedPlatform] || null) : null;
   const platColor = {
     "nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791",
