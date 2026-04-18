@@ -167,7 +167,7 @@ async def translate_query(request: Request):
                     "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 60,
                     "messages": [{"role": "user", "content":
-                        f'Convert this Nintendo Switch game search query to the most likely official English game title for RAWG API. Return ONLY the English title, no explanation: "{query}"'
+                        f'Help search for a Nintendo Switch game on RAWG. If the input is already a proper English game title, return it EXACTLY unchanged. Only translate or convert if the input is in Chinese, Japanese, or is a vague non-English description. Return ONLY the game title, nothing else: "{query}"'
                     }]
                 },
                 timeout=10
