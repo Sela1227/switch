@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.19";
+const VERSION = "V1.13.20";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -1643,13 +1643,13 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
         <div style={{ background:"#0e0e1a", borderTop:`1px solid ${platColor}44`, padding: small?"3px 5px":"5px 8px", flexShrink:0 }}>
           {/* 遊戲名 */}
           <div style={{
-            fontSize: small?8:medium?10:12, fontWeight:700, color:"#ddd", lineHeight:1.3,
+            fontSize: small?9:medium?12:14, fontWeight:700, color:"#ddd", lineHeight:1.3,
             overflow:"hidden", display:"-webkit-box",
             WebkitLineClamp: small?1:2, WebkitBoxOrient:"vertical",
             marginBottom: small?1:2,
           }}>{game.name}</div>
           {/* 平台 */}
-          <span style={{ fontSize: small?7:9, color:platColor, fontWeight:700 }}>
+          <span style={{ fontSize: small?8:10, color:platColor, fontWeight:700 }}>
             {ownedLabel || "—"}
           </span>
         </div>
