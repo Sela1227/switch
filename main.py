@@ -409,63 +409,79 @@ async def gamer_name_lookup(q: str):
                 "gamer_sn": best["gamer_sn"] or ""}
     return {"zh_name": "", "cover_url": ""}
 
-def gamer_cover_url(sn: int) -> str:
-    """根據巴哈 ACG sn 組合封面 URL"""
+def gamer_cover_url(sn: int, ext: str = "JPG") -> str:
     folder = sn % 100
     padded = str(sn).zfill(10)
-    return f"https://p2.bahamut.com.tw/B/ACG/c/{folder:02d}/{padded}.JPG"
+    return f"https://p2.bahamut.com.tw/B/ACG/c/{folder:02d}/{padded}.{ext}"
+
+async def find_acg_cover(sn: int, client: httpx.AsyncClient) -> str:
+    """給 ACG sn，回傳可用的封面 URL（試 JPG 和 PNG）"""
+    for ext in ["JPG", "PNG"]:
+        url = gamer_cover_url(sn, ext)
+        try:
+            r = await client.head(url, timeout=5)
+            if r.status_code == 200:
+                return url
+        except: pass
+    return gamer_cover_url(sn, "JPG")  # fallback
 
 @app.get("/api/gamer-search")
 async def gamer_search(q: str):
-    """即時搜尋巴哈商城，回傳中文名稱與封面 URL"""
+    """即時搜尋巴哈 ACG 資料庫，回傳中文名稱與封面 URL"""
     if not q.strip():
         return {"zh_name": "", "cover_url": ""}
-    url = f"https://buy.gamer.com.tw/search.php?kw={httpx.URL(q)}"
+    from urllib.parse import quote
     try:
-        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
-            res = await client.get(
-                f"https://buy.gamer.com.tw/search.php?kw={q}",
-                headers=GAMER_HEADERS
-            )
-        if res.status_code != 200:
-            return {"zh_name": "", "cover_url": ""}
-        soup = BeautifulSoup(res.text, "html.parser")
-        # 找 atmItem 連結
-        links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
-        if not links:
-            return {"zh_name": "", "cover_url": ""}
-        lk = links[0]
-        m = re.search(r'sn=(\d+)', lk.get("href",""))
-        sn = int(m.group(1)) if m else None
-        # 取名稱
-        zh_name = (lk.get("title") or lk.get_text(strip=True) or "").strip()
-        zh_name = re.sub(r'[《》\u300a\u300b]', '', zh_name).strip()
-        # 封面：找 img 的 ACG CDN URL，或用 sn 組合
-        cover_url = None
-        img = lk.find("img") or (lk.parent.find("img") if lk.parent else None)
-        if img:
-            src = img.get("src") or img.get("data-src") or ""
-            if "bahamut.com.tw" in src or "p2.baha" in src:
-                cover_url = src if src.startswith("http") else "https:" + src
-        # 找頁面中的 bahamut 封面 URL
-        if not cover_url:
-            for tag in soup.find_all("img"):
-                src = tag.get("src","")
-                if "p2.bahamut.com.tw" in src:
-                    cover_url = src if src.startswith("http") else "https:" + src
-                    break
-        # 找 acgDetail 的 sn 來組合封面 URL
-        if not cover_url:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            # 搜尋 acg.gamer.com.tw（有中文名稱、英文名、封面連結）
+            acg_url = f"https://acg.gamer.com.tw/search.php?kw={quote(q)}&page=1"
+            res = await client.get(acg_url, headers=GAMER_HEADERS)
+            soup = BeautifulSoup(res.text, "html.parser")
+
+            # 找 acgDetail 連結
             acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
-            for al in acg_links:
-                m2 = re.search(r's=(\d+)', al.get("href",""))
-                if m2:
-                    cover_url = gamer_cover_url(int(m2.group(1)))
-                    break
-        # 最後用 atmItem sn 試試（有時候 buy sn ≈ acg sn）
-        if not cover_url and sn:
-            cover_url = gamer_cover_url(sn)
-        return {"zh_name": zh_name, "cover_url": cover_url or ""}
+
+            if not acg_links:
+                # fallback: buy.gamer.com.tw 搜尋
+                buy_url = f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"
+                res2 = await client.get(buy_url, headers=GAMER_HEADERS)
+                soup2 = BeautifulSoup(res2.text, "html.parser")
+                acg_links = soup2.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+                if not acg_links:
+                    # 最後嘗試 buy atmItem 連結
+                    atm_links = soup2.find_all("a", href=lambda h: h and "atmItem" in str(h))
+                    if atm_links:
+                        lk = atm_links[0]
+                        zh_name = re.sub(r'[《》\u300a\u300b]', '', (lk.get("title") or lk.get_text(strip=True) or "")).strip()
+                        m = re.search(r'sn=(\d+)', lk.get("href",""))
+                        sn = int(m.group(1)) if m else None
+                        cover = await find_acg_cover(sn, client) if sn else ""
+                        return {"zh_name": zh_name, "cover_url": cover}
+                    return {"zh_name": "", "cover_url": ""}
+
+            # 從 ACG 頁面取第一個結果
+            lk = acg_links[0]
+            m = re.search(r's=(\d+)', lk.get("href",""))
+            acg_sn = int(m.group(1)) if m else None
+
+            # 取中文名：標題 or 連結文字
+            zh_name = (lk.get("title") or lk.get_text(strip=True) or "").strip()
+            # 父元素可能有更完整的名稱
+            parent = lk.parent
+            if parent:
+                candidate = parent.get_text(strip=True)
+                if len(candidate) > len(zh_name) and len(candidate) < 60:
+                    zh_name = candidate
+            zh_name = re.sub(r'[《》\u300a\u300b]', '', zh_name).strip()
+
+            # 封面
+            cover_url = ""
+            if acg_sn:
+                # 先試直接抓封面確認副檔名
+                cover_url = await find_acg_cover(acg_sn, client)
+
+            return {"zh_name": zh_name, "cover_url": cover_url, "acg_sn": acg_sn}
+
     except Exception as e:
         print(f"[gamer-search] {e}")
         return {"zh_name": "", "cover_url": ""}
