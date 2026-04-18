@@ -165,21 +165,13 @@ async def smart_search(q: str, platform: str = "7", request: Request = None):
     key_param  = f"&key={api_key}" if api_key else ""
     plat_param = f"&platforms={platform}" if platform and platform != "all" else ""
 
-    async with httpx.AsyncClient() as client:
-        r1 = await client.get(
-            f"https://api.rawg.io/api/games?search={q}&page_size=8{key_param}",
-            timeout=10
-        )
-    candidates = r1.json().get("results", [])
-    if not candidates:
-        return {"results": [], "selected": q}
+    search_query = q
 
-    selected = candidates[0]["name"]
+    # Step 1：Claude 先將查詢翻譯為英文（避免中文直接送 RAWG 找不到）
     if claude_key:
-        names_list = "\n".join(f"- {r['name']}" for r in candidates)
         try:
             async with httpx.AsyncClient() as client:
-                cr = await client.post(
+                tr = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers={
                         "x-api-key": claude_key,
@@ -188,33 +180,44 @@ async def smart_search(q: str, platform: str = "7", request: Request = None):
                     },
                     json={
                         "model": "claude-haiku-4-5-20251001",
-                        "max_tokens": 80,
+                        "max_tokens": 60,
                         "system": (
-                            "你是 Nintendo Switch 玩家助理。"
-                            "根據使用者的搜尋意圖，從 RAWG 的候選遊戲清單中，選出最符合的一個。"
-                            "只回傳清單中的完整遊戲名稱，不加任何說明或標點。"
+                            "你是資深遊戲玩家助理，熟悉各平台遊戲。"
+                            "將使用者的遊戲搜尋關鍵字轉換成最適合在 RAWG 搜尋的英文遊戲名稱。\n"
+                            "規則：\n"
+                            "1. 若輸入已是正確英文遊戲名稱，原樣回傳\n"
+                            "2. 中文/日文遊戲名稱，找出對應官方英文名\n"
+                            "3. 簡稱或暱稱，推斷最可能的正式遊戲名\n"
+                            "4. 只回傳英文遊戲名稱，不加任何說明或標點"
                         ),
-                        "messages": [{"role": "user",
-                            "content": f"使用者搜尋：{q}\n\nRAWG 候選清單：\n{names_list}\n\n請選出最符合的遊戲名稱："}]
+                        "messages": [{"role": "user", "content": q}]
                     },
                     timeout=10
                 )
-            picked = cr.json().get("content", [{}])[0].get("text", "").strip()
-            if any(picked == r["name"] for r in candidates):
-                selected = picked
+            translated = tr.json().get("content", [{}])[0].get("text", q).strip()
+            if translated:
+                search_query = translated
         except Exception:
             pass
 
+    # Step 2：用翻譯後的英文名搜尋 RAWG
     async with httpx.AsyncClient() as client:
-        r2 = await client.get(
-            f"https://api.rawg.io/api/games?search={selected}&page_size=12{plat_param}{key_param}",
+        r1 = await client.get(
+            f"https://api.rawg.io/api/games?search={search_query}&page_size=12{plat_param}{key_param}",
             timeout=10
         )
-    results = r2.json().get("results", [])
-    if not results:
-        results = candidates
+    results = r1.json().get("results", [])
 
-    return {"results": results, "selected": selected}
+    # 若加平台篩選後沒結果，退回不篩選
+    if not results and plat_param:
+        async with httpx.AsyncClient() as client:
+            r2 = await client.get(
+                f"https://api.rawg.io/api/games?search={search_query}&page_size=12{key_param}",
+                timeout=10
+            )
+        results = r2.json().get("results", [])
+
+    return {"results": results, "selected": search_query}
 
 import os.path
 if os.path.isdir("frontend/dist"):

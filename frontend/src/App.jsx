@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const VERSION = "V1.3.0";
+const VERSION = "V1.3.1";
 
 const PLATFORMS = [
   { id: "all",    label: "全部",   rawg: "all" },
