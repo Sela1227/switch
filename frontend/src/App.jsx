@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.21";
+const VERSION = "V1.13.22";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -549,8 +549,7 @@ export default function App() {
     setCoverSearching(false);
   }
 
-  function trimWhiteBorder(img, threshold = 240) {
-    // 先畫原圖到 canvas 取得像素
+  function trimWhiteBorder(img, threshold = 220) {
     const c = document.createElement("canvas");
     c.width = img.width; c.height = img.height;
     const ctx = c.getContext("2d");
@@ -558,32 +557,32 @@ export default function App() {
     const px = ctx.getImageData(0, 0, c.width, c.height).data;
     const w = c.width, h = c.height;
 
+    // 一個像素是否「淺色」
     const isLight = (x, y) => {
       const i = (y * w + x) * 4;
       return px[i] > threshold && px[i+1] > threshold && px[i+2] > threshold;
     };
+    // 一整列/行 95% 以上是淺色就視為邊框
+    const rowIsLight = (y) => {
+      let cnt = 0;
+      for (let x = 0; x < w; x++) if (isLight(x, y)) cnt++;
+      return cnt / w > 0.95;
+    };
+    const colIsLight = (x, top, bottom) => {
+      let cnt = 0;
+      for (let y = top; y <= bottom; y++) if (isLight(x, y)) cnt++;
+      return cnt / (bottom - top + 1) > 0.95;
+    };
 
     let top = 0, bottom = h - 1, left = 0, right = w - 1;
-    // 找上邊界
-    outer: for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) { if (!isLight(x, y)) { top = y; break outer; } }
-    }
-    // 找下邊界
-    outer: for (let y = h - 1; y >= 0; y--) {
-      for (let x = 0; x < w; x++) { if (!isLight(x, y)) { bottom = y; break outer; } }
-    }
-    // 找左邊界
-    outer: for (let x = 0; x < w; x++) {
-      for (let y = top; y <= bottom; y++) { if (!isLight(x, y)) { left = x; break outer; } }
-    }
-    // 找右邊界
-    outer: for (let x = w - 1; x >= 0; x--) {
-      for (let y = top; y <= bottom; y++) { if (!isLight(x, y)) { right = x; break outer; } }
-    }
+    while (top < bottom && rowIsLight(top)) top++;
+    while (bottom > top && rowIsLight(bottom)) bottom--;
+    while (left < right && colIsLight(left, top, bottom)) left++;
+    while (right > left && colIsLight(right, top, bottom)) right--;
 
-    // 如果裁掉的面積 < 5%，不裁（避免誤裁）
     const cropW = right - left + 1, cropH = bottom - top + 1;
-    if (cropW / w > 0.95 && cropH / h > 0.95) return img;
+    // 裁掉面積太小就不裁
+    if (cropW / w > 0.97 && cropH / h > 0.97) return img;
 
     const out = document.createElement("canvas");
     out.width = cropW; out.height = cropH;
