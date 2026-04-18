@@ -138,7 +138,7 @@ import httpx
 async def search_games(q: str):
     api_key = os.getenv("RAWG_API_KEY", "")
     key_param = f"&key={api_key}" if api_key else ""
-    url = f"https://api.rawg.io/api/games?search={q}&platforms=7&page_size=12{key_param}"
+    url = f"https://api.rawg.io/api/games?search={q}&page_size=12{key_param}"
     async with httpx.AsyncClient() as client:
         res = await client.get(url, timeout=10)
     return res.json()
