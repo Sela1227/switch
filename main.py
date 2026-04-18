@@ -147,16 +147,65 @@ def return_borrow(borrow_id: str):
 def get_config():
     return {"ok": True}
 
+# ── RAWG 新遊戲快取（6 小時更新一次）────────────────────────────────────
+import time as _time
+_recent_cache: dict = {"data": [], "ts": 0}
+CACHE_TTL = 6 * 3600
+
+async def get_recent_games(api_key: str) -> list:
+    now = _time.time()
+    if now - _recent_cache["ts"] < CACHE_TTL and _recent_cache["data"]:
+        return _recent_cache["data"]
+    try:
+        key_param = f"&key={api_key}" if api_key else ""
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"https://api.rawg.io/api/games?platforms=7&ordering=-released&page_size=40{key_param}",
+                timeout=10
+            )
+        games = res.json().get("results", [])
+        _recent_cache["data"] = [{"name": g["name"], "released": g.get("released", "")} for g in games]
+        _recent_cache["ts"] = now
+    except Exception:
+        pass
+    return _recent_cache["data"]
+
+# ── helper：單次 RAWG 搜尋 ────────────────────────────────────────────────
+async def rawg_search(q: str, plat_param: str, key_param: str) -> list:
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"https://api.rawg.io/api/games?search={q}&page_size=12{plat_param}{key_param}",
+            timeout=10
+        )
+    return res.json().get("results", [])
+
+# ── helper：Claude 翻譯 / 放寬關鍵字 ─────────────────────────────────────
+async def claude_query(prompt_system: str, user_msg: str, claude_key: str) -> str:
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": claude_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 60,
+                "system": prompt_system,
+                "messages": [{"role": "user", "content": user_msg}]
+            },
+            timeout=10
+        )
+    return res.json().get("content", [{}])[0].get("text", "").strip()
+
 @app.get("/api/search")
 async def search_games(q: str, platform: str = "7"):
-    api_key = os.getenv("RAWG_API_KEY", "")
+    api_key   = os.getenv("RAWG_API_KEY", "")
     key_param = f"&key={api_key}" if api_key else ""
     plat_param = f"&platforms={platform}" if platform and platform != "all" else ""
-    url = f"https://api.rawg.io/api/games?search={q}&page_size=12{plat_param}{key_param}"
-    async with httpx.AsyncClient() as client:
-        res = await client.get(url, timeout=10)
-    data = res.json()
-    return {"results": data.get("results", []), "selected": q}
+    results = await rawg_search(q, plat_param, key_param)
+    return {"results": results, "selected": q}
 
 @app.get("/api/smart-search")
 async def smart_search(q: str, platform: str = "7", request: Request = None):
@@ -167,55 +216,57 @@ async def smart_search(q: str, platform: str = "7", request: Request = None):
 
     search_query = q
 
-    # Step 1：Claude 先將查詢翻譯為英文（避免中文直接送 RAWG 找不到）
+    # ── Step 1：抓近期 Switch 新遊戲當 Claude 的參考資料 ────────────────
+    recent_ctx = ""
     if claude_key:
         try:
-            async with httpx.AsyncClient() as client:
-                tr = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": claude_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": "claude-haiku-4-5-20251001",
-                        "max_tokens": 60,
-                        "system": (
-                            "你是資深遊戲玩家助理，熟悉各平台遊戲。"
-                            "將使用者的遊戲搜尋關鍵字轉換成最適合在 RAWG 搜尋的英文遊戲名稱。\n"
-                            "規則：\n"
-                            "1. 若輸入已是正確英文遊戲名稱，原樣回傳\n"
-                            "2. 中文/日文遊戲名稱，找出對應官方英文名\n"
-                            "3. 簡稱或暱稱，推斷最可能的正式遊戲名\n"
-                            "4. 只回傳英文遊戲名稱，不加任何說明或標點"
-                        ),
-                        "messages": [{"role": "user", "content": q}]
-                    },
-                    timeout=10
-                )
-            translated = tr.json().get("content", [{}])[0].get("text", q).strip()
+            recent = await get_recent_games(api_key)
+            if recent:
+                lines = "\n".join(f"- {g['name']} ({g['released']})" for g in recent[:30])
+                recent_ctx = f"\n\n近期發布的遊戲（對應中文名時可參考）：\n{lines}"
+        except Exception:
+            pass
+
+    # ── Step 2：Claude 翻譯（含新遊戲清單 context）──────────────────────
+    if claude_key:
+        try:
+            system_translate = (
+                "你是資深遊戲玩家助理，熟悉各平台遊戲。\n"
+                "將使用者的遊戲搜尋關鍵字轉換成最適合在 RAWG 搜尋的英文遊戲名稱。\n"
+                "規則：\n"
+                "1. 若輸入已是正確英文遊戲名稱，原樣回傳\n"
+                "2. 中文/日文遊戲名稱，找出對應官方英文名\n"
+                "3. 簡稱或暱稱，推斷最可能的正式遊戲名\n"
+                "4. 只回傳英文遊戲名稱，不加任何說明或標點"
+                + recent_ctx
+            )
+            translated = await claude_query(system_translate, q, claude_key)
             if translated:
                 search_query = translated
         except Exception:
             pass
 
-    # Step 2：用翻譯後的英文名搜尋 RAWG
-    async with httpx.AsyncClient() as client:
-        r1 = await client.get(
-            f"https://api.rawg.io/api/games?search={search_query}&page_size=12{plat_param}{key_param}",
-            timeout=10
-        )
-    results = r1.json().get("results", [])
+    # ── Step 3：用翻譯後的名稱 + 平台篩選搜尋 ──────────────────────────
+    results = await rawg_search(search_query, plat_param, key_param)
 
-    # 若加平台篩選後沒結果，退回不篩選
+    # ── Step 4：退回 — 去掉平台篩選 ────────────────────────────────────
     if not results and plat_param:
-        async with httpx.AsyncClient() as client:
-            r2 = await client.get(
-                f"https://api.rawg.io/api/games?search={search_query}&page_size=12{key_param}",
-                timeout=10
+        results = await rawg_search(search_query, "", key_param)
+
+    # ── Step 5：退回 — Claude 放寬關鍵字後再試 ──────────────────────────
+    if not results and claude_key and search_query != q:
+        try:
+            system_simplify = (
+                "把遊戲搜尋關鍵字縮短成最核心的系列名稱，去掉副標題、版本號、年份。"
+                "只回傳縮短後的英文名稱，不加說明。"
             )
-        results = r2.json().get("results", [])
+            simplified = await claude_query(system_simplify, search_query, claude_key)
+            if simplified and simplified != search_query:
+                results = await rawg_search(simplified, "", key_param)
+                if results:
+                    search_query = simplified + f" (from: {search_query})"
+        except Exception:
+            pass
 
     return {"results": results, "selected": search_query}
 
