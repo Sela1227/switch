@@ -245,6 +245,8 @@ export default function App() {
     }
     setIdentifying(false);
   }
+
+  async function addGame(r, ownedPlatform) {
     const platformSlugs = (r.platforms || []).map(p => p.platform.slug);
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
