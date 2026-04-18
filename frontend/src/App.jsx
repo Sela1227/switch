@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.2";
+const VERSION = "V1.10.3";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -882,46 +882,55 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
       {/* 頂部色條 */}
       <div style={{ height: micro?2:3, background:platColor, flexShrink:0 }} />
 
-      {/* 封面（乾淨，只有借出 badge）*/}
+      {/* 封面 */}
       <div style={{ position:"relative", width:"100%", paddingBottom:"140%", background:"#0a0a12", flexShrink:0 }}>
         {game.cover
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
           : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:micro?14:22, color:"#2a2a3a" }}>🎮</div>
         }
+        {/* 左上：編號 */}
+        {game.number != null && game.number !== "" && (
+          <div style={{
+            position:"absolute", top:micro?2:4, left:micro?2:4, zIndex:2,
+            background:"rgba(0,0,0,0.78)", border:"1px solid rgba(255,255,255,0.22)",
+            color:"#fff", fontSize:micro?8:11, padding:micro?"1px 4px":"3px 8px",
+            borderRadius:micro?3:5, fontFamily:"monospace", fontWeight:900, letterSpacing:0.5,
+          }}>{game.number}</div>
+        )}
+        {/* 右上：好玩度 */}
+        {game.funRating != null && (
+          <div style={{
+            position:"absolute", top:micro?2:4, right:micro?2:4, zIndex:2,
+            background:"rgba(0,0,0,0.35)", border:"1px solid rgba(251,191,36,0.55)",
+            color:"#fbbf24", fontSize:micro?8:11, padding:micro?"1px 4px":"3px 8px",
+            borderRadius:micro?3:5, fontWeight:900,
+          }}>★{game.funRating}</div>
+        )}
+        {/* 借出/逾期：好玩度下方 */}
         {borrow && (
-          <div style={{ position:"absolute", top:micro?2:4, right:micro?2:4, zIndex:2,
+          <div style={{
+            position:"absolute",
+            top: micro ? (game.funRating!=null?14:2) : (game.funRating!=null?30:4),
+            right:micro?2:4, zIndex:2,
             background:overdue?"#e60012":"#c47d00", color:"#fff",
-            fontSize:micro?7:9, padding:micro?"1px 4px":"2px 7px", borderRadius:4, fontWeight:700 }}>
-            {overdue?"逾期":"借出"}
-          </div>
+            fontSize:micro?7:9, padding:micro?"1px 4px":"2px 6px",
+            borderRadius:4, fontWeight:700,
+          }}>{overdue?"逾期":"借出"}</div>
         )}
       </div>
 
-      {/* 資訊區（完全獨立，不互相遮蔽）*/}
+      {/* 資訊區 */}
       {!micro && (
-        <div style={{ background:"#0e0e1a", borderTop:`1px solid ${platColor}33`, padding: small?"3px 6px":"5px 8px", flexShrink:0 }}>
-          {/* 遊戲名 */}
+        <div style={{ background:"#0e0e1a", borderTop:`1px solid ${platColor}33`, padding:small?"3px 6px":"5px 8px", flexShrink:0 }}>
           <div style={{
             fontSize:small?9:11, fontWeight:700, color:"#ddd", lineHeight:1.35,
             overflow:"hidden", display:"-webkit-box",
             WebkitLineClamp:small?1:2, WebkitBoxOrient:"vertical",
-            marginBottom:2
           }}>{game.name}</div>
-          {/* 下排：平台色 | 編號 | 好玩度 */}
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:4 }}>
-            <span style={{ fontSize:small?8:10, color:platColor, fontWeight:700, flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:2 }}>
+            <span style={{ fontSize:small?8:10, color:platColor, fontWeight:700 }}>
               {ownedLabel || "—"}
             </span>
-            <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-              {game.number != null && game.number !== "" && (
-                <span style={{ fontSize:small?8:10, color:"#bbb", fontFamily:"monospace", fontWeight:900, background:"#1a1a2a", padding:"0px 4px", borderRadius:3 }}>
-                  {game.number}
-                </span>
-              )}
-              {game.funRating != null && (
-                <span style={{ fontSize:small?8:10, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
-              )}
-            </div>
           </div>
         </div>
       )}
