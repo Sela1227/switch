@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.1";
+const VERSION = "V1.13.3";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -371,10 +371,16 @@ export default function App() {
     return { name: englishName, cover: null };
   }
 
+  function cleanGameName(name) {
+    // 去除 [ Switch ] [ NS2 ] [ PS5 ] 等平台前綴
+    return name.replace(/^\[\s*[^\]]+\s*\]\s*/g, '').trim();
+  }
+
   async function addGame(r, ownedPlatform) {
     const platformSlugs = (r.platforms || []).map(p => p.platform.slug);
-    const { name: finalName, cover: gamerCover } = await translateGameName(r.name);
-    const finalCover = r.background_image || gamerCover || null;
+    const { name: rawName, cover: gamerCover } = await translateGameName(r.name);
+    const finalName = cleanGameName(rawName);
+    const finalCover = gamerCover || r.background_image || null;
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
         id: String(r.id), name: finalName, cover: finalCover,
@@ -430,8 +436,9 @@ export default function App() {
       if (!window.confirm(`你已有《${item.name}》，還要再加一份嗎？\n（適合擁有多張同款遊戲的情況）`)) return;
     }
     try {
-      const { name: finalName, cover: gamerCover } = await translateGameName(item.name);
-      const finalCover = item.cover || gamerCover || null;
+      const { name: rawName, cover: gamerCover } = await translateGameName(item.name);
+      const finalName = cleanGameName(rawName);
+      const finalCover = gamerCover || item.cover || null;
       const newId = `${item.id}_${myUserId()}_${Date.now()}`;
       await api("/api/games", { method:"POST", pin:adminPin(), body:{
         id: newId, name: finalName, cover: finalCover,
@@ -801,9 +808,9 @@ export default function App() {
                       {exploreGames.map(g => (
                         <div key={g.id} style={{ background:"#15151e", border:"1px solid #2a2a38", borderRadius:8, overflow:"hidden", cursor:"pointer" }}
                           onClick={() => setReqModal({...g, userId: exploreUser.id})}>
-                          <div style={{ position:"relative", paddingBottom:"140%", background:"#0a0a12" }}>
+                          <div style={{ position:"relative", paddingBottom:"150%", background:"#0a0a12" }}>
                             {g.cover
-                              ? <img src={g.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                              ? <img src={g.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain" }} alt="" />
                               : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>
                             }
                           </div>
@@ -1533,9 +1540,9 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
       <div style={{ height: micro?2:3, background:platColor, flexShrink:0 }} />
 
       {/* 封面 */}
-      <div style={{ position:"relative", width:"100%", paddingBottom:"140%", background:"#0a0a12", flexShrink:0 }}>
+      <div style={{ position:"relative", width:"100%", paddingBottom:"150%", background:"#0a0a12", flexShrink:0 }}>
         {game.cover
-          ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
+          ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain" }} alt={game.name} />
           : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:micro?14:22, color:"#2a2a3a" }}>🎮</div>
         }
         {/* 左上：編號 - 正方形藍底 */}
