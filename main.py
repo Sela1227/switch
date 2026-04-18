@@ -64,7 +64,10 @@ class GameIn(BaseModel):
     owned_platform: Optional[str] = None
 
 class GameUpdate(BaseModel):
-    number: Optional[int] = None; fun_rating: Optional[int] = None
+    number: Optional[int] = None
+    fun_rating: Optional[int] = None
+    name: Optional[str] = None
+    owned_platform: Optional[str] = None
 
 class BorrowIn(BaseModel):
     id: str; game_id: str; borrower_name: str
@@ -99,7 +102,10 @@ def update_game(game_id: str, g: GameUpdate):
     conn = get_db()
     if g.number is not None: conn.execute("UPDATE games SET number=? WHERE id=?",(g.number,game_id))
     if g.fun_rating is not None: conn.execute("UPDATE games SET fun_rating=? WHERE id=?",(g.fun_rating,game_id))
-    conn.commit(); conn.close(); return {"ok": True}
+    if g.name is not None and g.name.strip(): conn.execute("UPDATE games SET name=? WHERE id=?",(g.name.strip(),game_id))
+    if g.owned_platform is not None: conn.execute("UPDATE games SET owned_platform=? WHERE id=?",(g.owned_platform or None,game_id))
+    conn.commit(); conn.close()
+    return {"ok": True}
 
 @app.delete("/api/games/{game_id}", dependencies=[Depends(verify_admin)])
 def delete_game(game_id: str):

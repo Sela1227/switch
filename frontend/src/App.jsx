@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.8.2";
+const VERSION = "V1.9.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -95,7 +95,20 @@ async function smartSearch(query, claudeKey, platform) {
 const today = () => new Date().toISOString().split("T")[0];
 function isOverdue(b) { return !b.returnedAt && new Date(b.expectedReturn) < new Date(); }
 function daysDiff(d) { return Math.floor((new Date() - new Date(d)) / 86400000); }
-const GRID_COLS = { large: 2, medium: 3, small: 4 };
+const GENRE_ZH = {
+  "Action": "動作", "Adventure": "冒險", "RPG": "角色扮演",
+  "Role Playing Games": "角色扮演", "Strategy": "策略", "Simulation": "模擬",
+  "Sports": "運動", "Racing": "競速", "Fighting": "格鬥",
+  "Shooter": "射擊", "Platformer": "平台跳躍", "Puzzle": "解謎",
+  "Horror": "恐怖", "Family": "家庭", "Casual": "休閒",
+  "Indie": "獨立", "Arcade": "街機", "Card": "卡牌",
+  "Board Games": "桌遊", "Educational": "教育", "Music": "音樂",
+  "Massively Multiplayer": "多人線上", "Point-and-click": "點擊冒險",
+  "Beat 'em up": "清版動作", "Hack and slash": "砍殺動作",
+};
+const gZh = (name) => GENRE_ZH[name] || name;
+
+const GRID_COLS = { large: 2, medium: 3, small: 4, mini: 5 };
 
 // ── App ───────────────────────────────────────────────────────────────────
 export default function App() {
@@ -126,10 +139,10 @@ export default function App() {
   const [collFilter, setCollFilter] = useState("all");
   const [wallPlatform, setWallPlatform] = useState(() => localStorage.getItem("svWallPlat") || "all");
   const [sortBy, setSortBy]   = useState(() => localStorage.getItem("svSort") || "default");
-  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "medium");
+  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "small");
 
   const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
-  const [editForm, setEditForm]   = useState({ number: "", funRating: "" });
+  const [editForm, setEditForm]   = useState({ number: "", funRating: "", name: "", ownedPlatform: "" });
   const [saving, setSaving]       = useState(false);
 
   const claudeKey = () => localStorage.getItem("svClaudeKey") || "";
@@ -300,6 +313,8 @@ export default function App() {
       const body = {};
       if (editForm.number !== "") body.number = parseInt(editForm.number) || null;
       if (editForm.funRating !== "") body.fun_rating = parseInt(editForm.funRating) || null;
+      if (editForm.name.trim()) body.name = editForm.name.trim();
+      body.owned_platform = editForm.ownedPlatform || null;
       await api(`/api/games/${id}`, { method: "PATCH", pin: adminPin(), body });
       await loadAll();
     } catch { alert("儲存失敗"); }
@@ -359,7 +374,7 @@ export default function App() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
                 <div style={{ display: "flex", background: "#1a1a24", borderRadius: 7, overflow: "hidden", border: "1px solid #2a2a38" }}>
-                  {[["large","大"],["medium","中"],["small","小"]].map(([s,l]) => (
+                  {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
                     <button key={s} onClick={() => setGrid(s)}
                       style={{ background: gridSize===s?"#e60012":"transparent", border:"none", color: gridSize===s?"#fff":"#555", padding:"5px 9px", fontSize:12, cursor:"pointer", fontFamily:"inherit", minHeight: 32 }}>
                       {l}
@@ -391,7 +406,7 @@ export default function App() {
                   {filteredGames.map(g => {
                     const ab = getActiveBorrow(g.id);
                     return <GameCard key={g.id} game={g} borrow={ab} overdue={ab && isOverdue(ab)} cols={cols}
-                      onClick={() => { setSelGame(g); setEditForm({ number: g.number ?? "", funRating: g.funRating ?? "" }); setModal("gameDetail"); }} />;
+                      onClick={() => { setSelGame(g); setEditForm({ number: g.number ?? "", funRating: g.funRating ?? "", name: g.name, ownedPlatform: g.ownedPlatform || "" }); setModal("gameDetail"); }} />;
                   })}
                 </div>
             }
@@ -549,51 +564,92 @@ export default function App() {
 
       {/* 遊戲詳情 */}
       {modal === "gameDetail" && selGame && (() => {
-        const ab  = getActiveBorrow(selGame.id);
-        const od  = ab && isOverdue(ab);
+        const ab   = getActiveBorrow(selGame.id);
+        const od   = ab && isOverdue(ab);
         const hist = borrows.filter(b => b.gameId === selGame.id);
-        const g   = games.find(x => x.id === selGame.id) || selGame;
-        const ownedLabel = g.ownedPlatform ? (PLAT_SLUG_LABEL[g.ownedPlatform] || g.ownedPlatform) : null;
+        const g    = games.find(x => x.id === selGame.id) || selGame;
+        const gameSlugs = (g.platforms || []).filter(s => MAJOR_SLUGS.includes(s));
         return (
-          <Modal title={g.name} onClose={() => setModal(null)}>
-            {g.cover && <img src={g.cover} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 10, marginBottom: 10 }} alt="" />}
+          <Modal title="遊戲資訊" onClose={() => setModal(null)}>
+            {/* 封面 */}
+            {g.cover && (
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <img src={g.cover} style={{ height: 160, objectFit: "contain", borderRadius: 8 }} alt="" />
+              </div>
+            )}
 
-            {/* 版本 + 發行日期 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-              {ownedLabel && (
-                <span style={{ background: "#e60012", color: "#fff", fontSize: 11, padding: "3px 10px", borderRadius: 12, fontWeight: 700 }}>
-                  {ownedLabel} 版
-                </span>
+            {/* ── 可編輯資訊區 ── */}
+            <div style={{ background: "#1a1a24", borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+
+              {/* 名稱 */}
+              <div>
+                <div style={S.fieldLabel}>遊戲名稱</div>
+                <input style={{ ...S.input, fontSize: 14 }} value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+
+              {/* 我的平台版本 */}
+              <div>
+                <div style={S.fieldLabel}>我的版本</div>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => (
+                    <button key={s}
+                      style={{ background: editForm.ownedPlatform===s?"#e60012":"#2a2a38", border:"none",
+                               color: editForm.ownedPlatform===s?"#fff":"#888",
+                               padding:"5px 12px", borderRadius:16, fontSize:12, cursor:"pointer",
+                               fontWeight: editForm.ownedPlatform===s?700:400, minHeight:32, touchAction:"manipulation" }}
+                      onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s ? "" : s }))}>
+                      {PLAT_SLUG_LABEL[s] || s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 編號 + 好玩度 */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={S.fieldLabel}>編號</div>
+                  <input type="number" style={{ ...S.input, padding:"7px 8px", fontSize:16 }}
+                    placeholder="—" value={editForm.number}
+                    onChange={e => setEditForm(f => ({ ...f, number: e.target.value }))} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={S.fieldLabel}>好玩度 (1–10)</div>
+                  <input type="number" min="1" max="10" style={{ ...S.input, padding:"7px 8px", fontSize:16 }}
+                    placeholder="—" value={editForm.funRating}
+                    onChange={e => setEditForm(f => ({ ...f, funRating: e.target.value }))} />
+                </div>
+              </div>
+
+              {/* 類別（中文，從資料來） */}
+              {g.genres?.length > 0 && (
+                <div>
+                  <div style={S.fieldLabel}>類別</div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {g.genres.map(gn => (
+                      <span key={gn} style={{ background: "#222230", color: "#aaa", fontSize: 11, padding: "4px 10px", borderRadius: 12 }}>
+                        {gZh(gn)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
-              {g.released && <span style={{ fontSize: 11, color: "#555" }}>{g.released}</span>}
-              {g.genres?.slice(0,2).map(gn => <span key={gn} style={{ background: "#1e1e2e", color: "#888", fontSize: 10, padding: "2px 7px", borderRadius: 7 }}>{gn}</span>)}
+
+              {/* 發行日期 */}
+              {g.released && (
+                <div style={{ fontSize: 11, color: "#555" }}>發行：{g.released}</div>
+              )}
+
+              {/* 儲存 */}
+              <button style={S.redBtn} disabled={saving} onClick={() => saveGameEdit(g.id)}>
+                {saving ? "儲存中…" : "💾 儲存"}
+              </button>
             </div>
 
-            {/* 編號 & 好玩度 */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, background: "#1a1a24", borderRadius: 10, padding: "10px 12px" }}>
-              <div style={{ flex: 1 }}>
-                <div style={S.fieldLabel}>編號</div>
-                <input type="number" style={{ ...S.input, padding: "6px 8px", fontSize: 16 }}
-                  placeholder="—" value={editForm.number}
-                  onChange={e => setEditForm(f => ({ ...f, number: e.target.value }))} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={S.fieldLabel}>好玩度 (1–10)</div>
-                <input type="number" min="1" max="10" style={{ ...S.input, padding: "6px 8px", fontSize: 16 }}
-                  placeholder="—" value={editForm.funRating}
-                  onChange={e => setEditForm(f => ({ ...f, funRating: e.target.value }))} />
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button style={{ background: saving?"#333":"#3b3b50", border:"none", color:"#e2e2e8", padding:"6px 12px", borderRadius:8, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", minHeight: 40 }}
-                  disabled={saving} onClick={() => saveGameEdit(g.id)}>
-                  {saving ? "…" : "儲存"}
-                </button>
-              </div>
-            </div>
-
+            {/* 借出狀態 */}
             {ab ? (
               <div style={od ? S.overdueBox : S.borrowedBox}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
+                <div style={{ fontWeight:700, marginBottom:8, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
                 <Row label="借用人" val={ab.borrowerName} />
                 <Row label="借出日期" val={ab.borrowDate} />
                 <Row label="預計歸還" val={ab.expectedReturn} highlight={od} />
@@ -604,6 +660,7 @@ export default function App() {
               isAdmin && <button style={S.redBtn} onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>📤 登記借出</button>
             )}
 
+            {/* 借出紀錄 */}
             {hist.length > 0 && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ ...S.fieldLabel, marginBottom: 6 }}>借出紀錄</div>
@@ -709,20 +766,24 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
       </div>
 
       {/* 卡片下方資訊 */}
-      <div style={{ padding: small ? "5px 6px" : "7px 8px", flex:1, display:"flex", flexDirection:"column", gap:3 }}>
+      <div style={{ padding: small ? "4px 5px" : "6px 8px", flex:1, display:"flex", flexDirection:"column", gap:2 }}>
         {/* 遊戲名 */}
-        <div style={{ fontSize: small?10:11, fontWeight:600, color:"#ddd", lineHeight:1.3,
-                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+        <div style={{ fontSize: small?9:11, fontWeight:600, color:"#ddd", lineHeight:1.3,
+                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp: small?1:2, WebkitBoxOrient:"vertical" }}>
           {game.name}
         </div>
+        {/* 中文類別（非微格才顯示） */}
+        {!small && game.genres?.[0] && (
+          <div style={{ fontSize:9, color:"#666" }}>{gZh(game.genres[0])}</div>
+        )}
         {/* 平台 + 好玩度 */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:1 }}>
           {ownedLabel
-            ? <span style={{ fontSize:9, background:"#e60012", color:"#fff", padding:"1px 5px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</span>
+            ? <span style={{ fontSize:8, background:"#e60012", color:"#fff", padding:"1px 4px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</span>
             : <span />
           }
           {game.funRating != null && (
-            <span style={{ fontSize:9, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
+            <span style={{ fontSize:8, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
           )}
         </div>
       </div>
