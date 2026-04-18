@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.3";
+const VERSION = "V1.12.4";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -304,14 +304,51 @@ export default function App() {
     setIdentifying(false);
   }
 
+  async function translateGameName(englishName) {
+    const ck = claudeKey();
+    if (!ck || !englishName) return englishName;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": ck, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 60,
+          system: (
+            "你是遊戲名稱翻譯助理，熟悉台灣/香港玩家最常用的繁體中文遊戲名稱。\n" +
+            "規則：\n" +
+            "1. 輸入英文遊戲名，回傳台灣玩家最常見的繁體中文名稱\n" +
+            "2. 若有官方中文名稱，優先使用官方名稱\n" +
+            "3. 若沒有廣泛使用的中文名，直接回傳原始英文名\n" +
+            "4. 只回傳遊戲名稱，不加任何說明\n" +
+            "範例：\n" +
+            "- The Legend of Zelda Tears of the Kingdom → 薩爾達傳說 王國之淚\n" +
+            "- Super Mario Bros. Wonder → 超級瑪利歐兄弟 驚奇\n" +
+            "- Pikmin 4 → 皮克敏4\n" +
+            "- Hades II → Hades II\n" +
+            "- Pokemon Scarlet → 寶可夢 朱"
+          ),
+          messages: [{ role: "user", content: englishName }]
+        })
+      });
+      const data = await res.json();
+      const translated = data.content?.[0]?.text?.trim();
+      return translated || englishName;
+    } catch {
+      return englishName;
+    }
+  }
+
   async function addGame(r, ownedPlatform) {
     const platformSlugs = (r.platforms || []).map(p => p.platform.slug);
+    const finalName = await translateGameName(r.name);
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
-        id: String(r.id), name: r.name, cover: r.background_image,
+        id: String(r.id), name: finalName, cover: r.background_image,
         genres: r.genres?.map(x => x.name) || [], rating: r.rating,
         platforms: platformSlugs, released: r.released || null,
-        owned_platform: ownedPlatform || null, user_id: myUserId()
+        owned_platform: ownedPlatform || null, user_id: myUserId(),
+        base_game_id: String(r.id)
       }});
       await loadAll();
     } catch { alert("新增失敗"); }
@@ -356,22 +393,17 @@ export default function App() {
   }
 
   async function importFromCatalog(item, ownedPlatform) {
-    // 已有同款，詢問是否再加一份
     if (item.iOwnIt) {
       if (!window.confirm(`你已有《${item.name}》，還要再加一份嗎？\n（適合擁有多張同款遊戲的情況）`)) return;
     }
     try {
-      // 用 timestamp 確保 id 唯一，允許多份
+      const finalName = await translateGameName(item.name);
       const newId = `${item.id}_${myUserId()}_${Date.now()}`;
       await api("/api/games", { method:"POST", pin:adminPin(), body:{
-        id: newId,
-        name: item.name,
-        cover: item.cover,
-        genres: item.genres || [],
-        platforms: item.platforms || [],
-        released: item.released || null,
-        owned_platform: ownedPlatform || null,
-        user_id: myUserId()
+        id: newId, name: finalName, cover: item.cover,
+        genres: item.genres || [], platforms: item.platforms || [],
+        released: item.released || null, owned_platform: ownedPlatform || null,
+        user_id: myUserId(), base_game_id: item.id
       }});
       await loadAll();
     } catch { alert("導入失敗"); }
