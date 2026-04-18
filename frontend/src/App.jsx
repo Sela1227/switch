@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.11.0";
+const VERSION = "V1.12.1";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -123,6 +123,12 @@ export default function App() {
   const [tab, setTab]         = useState("collection");
   const [games, setGames]     = useState([]);
   const [borrows, setBorrows] = useState([]);
+  const [publicUsers, setPublicUsers]   = useState([]);
+  const [exploreUser, setExploreUser]   = useState(null); // 正在看的用戶
+  const [exploreGames, setExploreGames] = useState([]);
+  const [borrowRequests, setBorrowRequests] = useState([]);
+  const [reqModal, setReqModal]   = useState(null); // 申請借用的遊戲
+  const [reqForm, setReqForm]     = useState({ message:"", expectedReturn:"" });
   const [isAdmin]             = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
@@ -134,6 +140,7 @@ export default function App() {
   const [query, setQuery]             = useState("");
   const [translatedQ, setTranslatedQ] = useState("");
   const [results, setResults]         = useState([]);
+  const [catalogResults, setCatalogResults] = useState([]);
   const [resultPlatforms, setResultPlatforms] = useState({});
   const [searching, setSearching]     = useState(false);
   const [searchErr, setSearchErr]     = useState("");
@@ -149,8 +156,8 @@ export default function App() {
   const [sortBy, setSortBy]   = useState(() => localStorage.getItem("svSort") || "default");
   const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "medium");
 
-  const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
-  const [editForm, setEditForm]   = useState({ number: "", funRating: "", name: "", ownedPlatform: "" });
+  const [settingsForm, setSettingsForm] = useState({ claudeKey:"", userName:"我的收藏", isPublic:1 });
+  const [editForm, setEditForm]   = useState({ number:"", funRating:"", name:"", ownedPlatform:"" });
   const [saving, setSaving]       = useState(false);
   const [showAllHist, setShowAllHist] = useState(false);
   const [addTab, setAddTab]       = useState("search");
@@ -160,17 +167,26 @@ export default function App() {
   const [coverSearching, setCoverSearching]   = useState(false);
   const coverImgRef = useRef(null);
   const [manualForm, setManualForm] = useState({ name:"", released:"", genres:"" });
-  const [manualCover, setManualCover] = useState(null); // base64
+  const [manualCover, setManualCover] = useState(null);
   const imgRef = useRef(null);
 
-  const claudeKey = () => localStorage.getItem("svClaudeKey") || "";
-  const adminPin  = () => sessionStorage.getItem("svPin") || "";
+  const claudeKey  = () => localStorage.getItem("svClaudeKey") || "";
+  const adminPin   = () => sessionStorage.getItem("svPin") || "";
+  const myUserId   = () => localStorage.getItem("svUserId") || "default";
 
   async function loadAll() {
     setLoading(true); setError("");
     try {
-      const [g, b] = await Promise.all([api("/api/games"), api("/api/borrows")]);
+      const uid = myUserId();
+      const [g, b, users, reqs] = await Promise.all([
+        api(`/api/games?user_id=${uid}`),
+        api(`/api/borrows?user_id=${uid}`),
+        api("/api/users"),
+        api(`/api/borrow-requests?user_id=${uid}`).catch(() => []),
+      ]);
       setGames(g); setBorrows(b);
+      setPublicUsers(users.filter(u => u.id !== uid));
+      setBorrowRequests(reqs);
     } catch { setError("無法連線到伺服器，請稍後再試"); }
     setLoading(false);
   }
@@ -204,8 +220,15 @@ export default function App() {
 
   async function doSearch() {
     if (!query.trim()) return;
-    setSearching(true); setResults([]); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
+    setSearching(true); setResults([]); setCatalogResults([]); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
     const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
+    // Step 1：先查共用目錄
+    try {
+      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`);
+      const catData = await catRes.json();
+      setCatalogResults(catData || []);
+    } catch {}
+    // Step 2：再從網路搜尋
     try {
       const data = await smartSearch(query, claudeKey(), plat);
       setResults(data.results || []);
@@ -216,9 +239,13 @@ export default function App() {
 
   async function doDirectSearch(customQ) {
     if (!customQ.trim()) return;
-    setSearching(true); setResults([]); setSearchErr(""); setShowManualQ(false);
+    setSearching(true); setResults([]); setCatalogResults([]); setSearchErr(""); setShowManualQ(false);
     const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
     const platParam = plat && plat !== "all" ? `&platform=${plat}` : "&platform=all";
+    try {
+      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(customQ)}&user_id=${myUserId()}`);
+      setCatalogResults(await catRes.json() || []);
+    } catch {}
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(customQ)}${platParam}`);
       const data = await res.json();
@@ -284,15 +311,65 @@ export default function App() {
         id: String(r.id), name: r.name, cover: r.background_image,
         genres: r.genres?.map(x => x.name) || [], rating: r.rating,
         platforms: platformSlugs, released: r.released || null,
-        owned_platform: ownedPlatform || null
+        owned_platform: ownedPlatform || null, user_id: myUserId()
       }});
       await loadAll();
     } catch { alert("新增失敗"); }
     closeAddGame();
   }
 
+  async function loadUserGames(user) {
+    setExploreUser(user);
+    setExploreGames([]);
+    try {
+      const data = await api(`/api/users/${user.id}/games`);
+      setExploreGames(data);
+    } catch {}
+  }
+
+  async function submitBorrowRequest() {
+    if (!reqModal || !reqForm.expectedReturn) return;
+    const myName = localStorage.getItem("svUserName") || "匿名玩家";
+    try {
+      await api("/api/borrow-requests", { method:"POST", body: {
+        id: Date.now().toString(),
+        game_id: reqModal.id,
+        owner_user_id: reqModal.userId,
+        requester_user_id: myUserId(),
+        requester_name: myName,
+        message: reqForm.message,
+        expected_return: reqForm.expectedReturn,
+      }});
+      setReqModal(null); setReqForm({ message:"", expectedReturn:"" });
+      alert("申請已送出！");
+    } catch { alert("申請失敗"); }
+  }
+
+  async function respondBorrowRequest(reqId, status) {
+    try {
+      await fetch(`/api/borrow-requests/${reqId}`, {
+        method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ status })
+      });
+      await loadAll();
+    } catch { alert("操作失敗"); }
+  }
+
+  async function importFromCatalog(item, ownedPlatform) {
+    try {
+      const slugs = item.platforms || [];
+      // 檢查是否已在自己收藏裡
+      if (item.iOwnIt) { alert("你已經有這款遊戲了！"); return; }
+      await api("/api/catalog/import", { method:"POST", pin:adminPin(), body:{
+        game_id: item.id, user_id: myUserId(), owned_platform: ownedPlatform || null
+      }});
+      await loadAll();
+    } catch { alert("導入失敗"); }
+    closeAddGame();
+  }
+
   function closeAddGame() {
-    setModal(null); setQuery(""); setResults([]); setSearchErr("");
+    setModal(null); setQuery(""); setResults([]); setCatalogResults([]); setSearchErr("");
     setTranslatedQ(""); setShowManualQ(false);
     setAddTab("search"); setManualForm({ name:"", released:"", genres:"" }); setManualCover(null);
   }
@@ -379,7 +456,7 @@ export default function App() {
         id, name:manualForm.name.trim(),
         cover: manualCover || null,
         genres, released: manualForm.released || null,
-        platforms:[], owned_platform: null
+        platforms:[], owned_platform: null, user_id: myUserId()
       }});
       await loadAll();
       setManualForm({ name:"", released:"", genres:"" });
@@ -488,8 +565,14 @@ export default function App() {
             <button style={{ background:"#e60012", border:"none", color:"#fff", padding:"5px 10px", borderRadius:6, fontSize:14, cursor:"pointer", fontWeight:900, minHeight:30, touchAction:"manipulation" }}
               onClick={() => setModal("addGame")}>＋</button>
           )}
-          <button style={{ ...S.iconBtn, fontSize:18, minHeight:30, minWidth:30, padding:"4px" }}
-            onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
+          <button style={S.iconBtn} onClick={async () => {
+            const ck = claudeKey();
+            const uname = localStorage.getItem("svUserName") || "我的收藏";
+            let isPub = 1;
+            try { const u = await api(`/api/users/${myUserId()}`); isPub = u.isPublic; } catch {}
+            setSettingsForm({ claudeKey: ck, userName: uname, isPublic: isPub });
+            setModal("settings");
+          }}>⚙</button>
         </div>
       </header>
 
@@ -555,6 +638,98 @@ export default function App() {
             }
           </div>
         )}
+
+        {tab === "explore" && (
+          <div style={{ padding:"12px 14px 80px" }}>
+            {/* 待回覆申請 */}
+            {borrowRequests.filter(r=>r.ownerUserId===myUserId()&&r.status==="pending").length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={S.sectionTitle}>📬 待確認借用申請</div>
+                {borrowRequests.filter(r=>r.ownerUserId===myUserId()&&r.status==="pending").map(req => (
+                  <div key={req.id} style={{ background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:10, padding:"10px 12px", marginBottom:8 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                      {req.gameCover && <img src={req.gameCover} style={{ width:40, height:56, objectFit:"cover", borderRadius:5 }} alt="" />}
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:700, color:"#e2e2e8" }}>{req.gameName}</div>
+                        <div style={{ fontSize:11, color:"#888" }}>{req.requesterName} 想借到 {req.expectedReturn}</div>
+                        {req.message && <div style={{ fontSize:11, color:"#666", fontStyle:"italic" }}>"{req.message}"</div>}
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={() => respondBorrowRequest(req.id,"approved")}
+                        style={{ flex:1, background:"#16a34a", border:"none", color:"#fff", padding:"7px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>✓ 同意</button>
+                      <button onClick={() => respondBorrowRequest(req.id,"rejected")}
+                        style={{ flex:1, background:"#1a1a24", border:"1px solid #3a1a1a", color:"#f87171", padding:"7px", borderRadius:8, fontSize:12, cursor:"pointer" }}>✗ 拒絕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 我送出的申請 */}
+            {borrowRequests.filter(r=>r.requesterUserId===myUserId()).length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={S.sectionTitle}>📤 我的申請</div>
+                {borrowRequests.filter(r=>r.requesterUserId===myUserId()).map(req => (
+                  <div key={req.id} style={{ display:"flex", alignItems:"center", gap:8, background:"#1a1a24", borderRadius:8, padding:"8px 10px", marginBottom:6 }}>
+                    {req.gameCover && <img src={req.gameCover} style={{ width:32, height:44, objectFit:"cover", borderRadius:4 }} alt="" />}
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:"#ddd" }}>{req.gameName}</div>
+                      <div style={{ fontSize:10, color:"#666" }}>還至 {req.expectedReturn}</div>
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color: req.status==="approved"?"#4ade80":req.status==="rejected"?"#f87171":"#fbbf24" }}>
+                      {req.status==="approved"?"已同意":req.status==="rejected"?"已拒絕":"待回覆"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 公開用戶列表 */}
+            <div style={S.sectionTitle}>🌐 公開收藏 — {publicUsers.length} 位玩家</div>
+            {publicUsers.length === 0
+              ? <Empty icon="🌐" text="目前沒有其他公開用戶" />
+              : exploreUser
+                ? (<>
+                    <button onClick={() => { setExploreUser(null); setExploreGames([]); }}
+                      style={{ background:"#1a1a24", border:"1px solid #2a2a38", color:"#aaa", padding:"6px 12px", borderRadius:8, fontSize:12, cursor:"pointer", marginBottom:12 }}>
+                      ← 返回列表
+                    </button>
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:15, fontWeight:700, color:"#e2e2e8" }}>{exploreUser.name} 的收藏</div>
+                      <div style={{ fontSize:11, color:"#555" }}>共 {exploreGames.length} 款</div>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                      {exploreGames.map(g => (
+                        <div key={g.id} style={{ background:"#15151e", border:"1px solid #2a2a38", borderRadius:8, overflow:"hidden", cursor:"pointer" }}
+                          onClick={() => setReqModal({...g, userId: exploreUser.id})}>
+                          <div style={{ position:"relative", paddingBottom:"140%", background:"#0a0a12" }}>
+                            {g.cover
+                              ? <img src={g.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                              : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>
+                            }
+                          </div>
+                          <div style={{ padding:"4px 6px", background:"#0e0e1a", borderTop:"1px solid #1e1e28" }}>
+                            <div style={{ fontSize:9, color:"#ccc", fontWeight:600, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{g.name}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>)
+                : publicUsers.map(u => (
+                    <div key={u.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:10, padding:"10px 12px", marginBottom:8, cursor:"pointer" }}
+                      onClick={() => loadUserGames(u)}>
+                      <div style={{ width:40, height:40, borderRadius:"50%", background:"#e60012", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                        {u.avatar ? <img src={u.avatar} style={{ width:"100%", height:"100%", borderRadius:"50%", objectFit:"cover" }} alt="" /> : "🎮"}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:"#e2e2e8" }}>{u.name}</div>
+                        <div style={{ fontSize:11, color:"#555" }}>點擊查看收藏</div>
+                      </div>
+                      <span style={{ color:"#555", fontSize:18 }}>›</span>
+                    </div>
+                  ))
+            }
+          </div>
+        )}
       </main>
 
       {/* Bottom Nav */}
@@ -562,6 +737,7 @@ export default function App() {
         <NavItem label="收藏" emoji="🎮" active={tab==="collection"} onClick={() => setTab("collection")} />
         <NavItem label={`借出${activeBorrows.length ? ` (${activeBorrows.length})` : ""}`} emoji="📤" active={tab==="borrowed"} onClick={() => setTab("borrowed")} />
         <NavItem label={`逾期${overdueBorrows.length ? ` (${overdueBorrows.length})` : ""}`} emoji="⚠️" active={tab==="overdue"} onClick={() => setTab("overdue")} alert={overdueBorrows.length > 0} />
+        <NavItem label={`探索${publicUsers.length ? ` (${publicUsers.length})` : ""}`} emoji="🌐" active={tab==="explore"} onClick={() => setTab("explore")} />
       </nav>
 
       {/* ── MODALS ── */}
@@ -631,6 +807,49 @@ export default function App() {
               </div>
             )}
             {searchErr && <div style={{ color:"#f87171", fontSize:12, marginBottom:8 }}>{searchErr}</div>}
+
+            {/* ── 收藏庫（優先）── */}
+            {catalogResults.length > 0 && (
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:10, color:"#4ade80", fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", marginBottom:5 }}>
+                  📦 收藏庫（{catalogResults.length} 筆）
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                  {catalogResults.map(item => {
+                    const slugs = (item.platforms||[]).filter(s=>MAJOR_SLUGS.includes(s));
+                    const sel = slugs[0] || "";
+                    return (
+                      <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#0e1f0e", borderRadius:10, padding:"8px 10px", border:"1px solid #1a3a1a" }}>
+                        <div style={{ width:42, height:42, flexShrink:0, borderRadius:5, overflow:"hidden", background:"#111" }}>
+                          {item.cover
+                            ? <img src={item.cover} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                            : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:16 }}>🎮</div>}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{item.name}</div>
+                          <div style={{ fontSize:10, color:"#4ade80" }}>
+                            已有 {item.ownerCount} 人收藏{item.iOwnIt ? "（含你）" : ""}
+                          </div>
+                        </div>
+                        <button onClick={() => item.iOwnIt ? null : importFromCatalog(item, sel)}
+                          style={{ background: item.iOwnIt?"#1a2a1a":"#16a34a", border:"none", color: item.iOwnIt?"#4ade80":"#fff",
+                                   borderRadius:8, padding:"7px 10px", fontSize:12, fontWeight:700,
+                                   cursor: item.iOwnIt?"default":"pointer", flexShrink:0 }}>
+                          {item.iOwnIt ? "✓ 已有" : "＋ 導入"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── 從網路搜尋 ── */}
+            {results.length > 0 && (
+              <div style={{ fontSize:10, color:"#555", fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", marginBottom:5 }}>
+                🌐 從網路搜尋
+              </div>
+            )}
             <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
               {results.map(r => {
                 const slugs = (r.platforms||[]).map(p=>p.platform.slug).filter(s=>MAJOR_SLUGS.includes(s));
@@ -940,22 +1159,81 @@ export default function App() {
 
       {modal === "settings" && (
         <Modal title="設定" onClose={() => setModal(null)}>
+          {/* 我的資料 */}
+          <div style={{ background:"#1a1a24", borderRadius:10, padding:"10px 12px", marginBottom:12 }}>
+            <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:8 }}>👤 我的帳號</div>
+            <div style={{ marginBottom:8 }}>
+              <div style={S.fieldLabel}>顯示名稱</div>
+              <input style={{ ...S.input, fontSize:14 }}
+                value={settingsForm.userName}
+                onChange={e => setSettingsForm(f => ({ ...f, userName: e.target.value }))} />
+            </div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+              <span style={{ fontSize:13, color:"#ccc" }}>公開我的收藏</span>
+              <button onClick={() => setSettingsForm(f => ({ ...f, isPublic: f.isPublic?0:1 }))}
+                style={{ background: settingsForm.isPublic?"#16a34a":"#2a2a38", border:"none", color:"#fff", padding:"4px 14px", borderRadius:12, fontSize:12, cursor:"pointer", fontWeight:700 }}>
+                {settingsForm.isPublic ? "公開 ✓" : "私人"}
+              </button>
+            </div>
+            <div style={{ fontSize:10, color:"#444" }}>公開後，其他人可以看到你的遊戲清單並申請借用</div>
+          </div>
+
+          {/* Claude API Key */}
           <div style={S.fieldLabel}>Claude API Key（存本機，不上傳伺服器）</div>
           <input style={{ ...S.input, fontFamily:"monospace", fontSize:14, marginBottom:8 }}
             placeholder="sk-ant-..." value={settingsForm.claudeKey}
             onChange={e => setSettingsForm(f => ({ ...f, claudeKey: e.target.value }))} />
-          <div style={{ background:"#1a1a24", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#555", marginBottom:20 }}>
+          <div style={{ background:"#1a1a24", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#555", marginBottom:12 }}>
             💡 設定後可使用中文搜尋、拍照辨識功能
           </div>
           <div style={{ background:"#0a1a0a", border:"1px solid #1a3a1a", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
-            <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:6 }}>🎨 IGDB 封面庫（直式高品質封面）</div>
+            <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:4 }}>🎨 IGDB 封面庫</div>
             <div style={{ fontSize:11, color:"#555", lineHeight:1.6 }}>
-              在 Railway → Variables 新增：<br/>
-              <code style={{ color:"#888" }}>IGDB_CLIENT_ID</code> 和 <code style={{ color:"#888" }}>IGDB_CLIENT_SECRET</code><br/>
-              申請：<span style={{ color:"#4ade80" }}>dev.twitch.tv</span> → 建立 App → 取得 Client ID + Secret
+              Railway → Variables → <code style={{ color:"#888" }}>IGDB_CLIENT_ID</code> / <code style={{ color:"#888" }}>IGDB_CLIENT_SECRET</code><br/>
+              申請：<span style={{ color:"#4ade80" }}>dev.twitch.tv</span>
             </div>
           </div>
-          <button style={S.redBtn} onClick={() => { localStorage.setItem("svClaudeKey", settingsForm.claudeKey); setModal(null); }}>儲存設定</button>
+          <button style={S.redBtn} onClick={async () => {
+            localStorage.setItem("svClaudeKey", settingsForm.claudeKey);
+            localStorage.setItem("svUserName", settingsForm.userName);
+            // 更新後端用戶資料
+            try {
+              await api(`/api/users/${myUserId()}`, { method:"PATCH", pin:adminPin(), body:{
+                name: settingsForm.userName, is_public: settingsForm.isPublic
+              }});
+            } catch {}
+            setModal(null);
+          }}>儲存設定</button>
+        </Modal>
+      )}
+
+      {/* 申請借用 Modal */}
+      {reqModal && (
+        <Modal title="申請借用" onClose={() => { setReqModal(null); setReqForm({ message:"", expectedReturn:"" }); }}>
+          <div style={{ display:"flex", gap:10, marginBottom:14, alignItems:"center" }}>
+            {reqModal.cover
+              ? <img src={reqModal.cover} style={{ width:60, height:84, objectFit:"cover", borderRadius:7 }} alt="" />
+              : <div style={{ width:60, height:84, background:"#1a1a24", borderRadius:7, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, color:"#333" }}>🎮</div>
+            }
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:"#e2e2e8", marginBottom:4 }}>{reqModal.name}</div>
+              <div style={{ fontSize:11, color:"#555" }}>向對方發送借用申請</div>
+            </div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <div style={S.fieldLabel}>預計歸還日期 *</div>
+            <input type="date" style={S.input} value={reqForm.expectedReturn}
+              onChange={e => setReqForm(f => ({ ...f, expectedReturn: e.target.value }))} />
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <div style={S.fieldLabel}>附言（選填）</div>
+            <input style={S.input} placeholder="例：我會好好愛惜！" value={reqForm.message}
+              onChange={e => setReqForm(f => ({ ...f, message: e.target.value }))} />
+          </div>
+          <button style={reqForm.expectedReturn ? S.redBtn : S.disabledBtn}
+            disabled={!reqForm.expectedReturn} onClick={submitBorrowRequest}>
+            📨 送出申請
+          </button>
         </Modal>
       )}
     </div>
