@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.9.0";
+const VERSION = "V1.9.1";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -108,7 +108,7 @@ const GENRE_ZH = {
 };
 const gZh = (name) => GENRE_ZH[name] || name;
 
-const GRID_COLS = { large: 2, medium: 3, small: 4, mini: 5 };
+const GRID_COLS = { large: 4, medium: 6, small: 8, mini: 12 };
 
 // ── App ───────────────────────────────────────────────────────────────────
 export default function App() {
@@ -345,17 +345,18 @@ export default function App() {
   );
 
   const cols = GRID_COLS[gridSize] || 4;
+  const isCompact = cols >= 8; // small/mini
 
   return (
     <div style={S.app}>
       {/* Header */}
       <header style={S.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 20 }}>🎮</span>
-          <span style={{ fontWeight: 900, fontSize: 13, letterSpacing: 2, color: "#fff", textTransform: "uppercase" }}>SWITCH VAULT</span>
-          <span style={{ fontSize: 10, color: "#444", fontFamily: "monospace" }}>{VERSION}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 22 }}>🎮</span>
+          <span style={{ fontWeight: 900, fontSize: 15, letterSpacing: 2, color: "#fff", textTransform: "uppercase" }}>SWITCH VAULT</span>
+          <span style={{ fontSize: 11, color: "#444", fontFamily: "monospace" }}>{VERSION}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button style={S.iconBtn} onClick={loadAll}>↻</button>
           <button style={S.iconBtn} onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
         </div>
@@ -365,29 +366,29 @@ export default function App() {
       <main style={S.main}>
         {tab === "collection" && (
           <div>
-            {/* Row 1 */}
-            <div style={{ padding: "10px 14px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ display: "flex", gap: 5, overflowX: "auto", flex: 1 }}>
+            {/* Row 1：篩選 + 格大小 + 新增 */}
+            <div style={{ padding: "12px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", flex: 1 }}>
                 {[["all","全部"],["available","可借"],["borrowed","借出中"]].map(([f,l]) => (
                   <button key={f} style={f===collFilter ? S.filterActive : S.filterBtn} onClick={() => setCollFilter(f)}>{l}</button>
                 ))}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                <div style={{ display: "flex", background: "#1a1a24", borderRadius: 7, overflow: "hidden", border: "1px solid #2a2a38" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <div style={{ display: "flex", background: "#1a1a24", borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a38" }}>
                   {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
                     <button key={s} onClick={() => setGrid(s)}
-                      style={{ background: gridSize===s?"#e60012":"transparent", border:"none", color: gridSize===s?"#fff":"#555", padding:"5px 9px", fontSize:12, cursor:"pointer", fontFamily:"inherit", minHeight: 32 }}>
+                      style={{ background: gridSize===s?"#e60012":"transparent", border:"none", color: gridSize===s?"#fff":"#666", padding:"6px 11px", fontSize:13, cursor:"pointer", fontFamily:"inherit", minHeight:34 }}>
                       {l}
                     </button>
                   ))}
                 </div>
-                {isAdmin && <button style={S.addBtn} onClick={() => setModal("addGame")}>＋</button>}
+                {isAdmin && <button style={S.addBtn} onClick={() => setModal("addGame")}>＋ 新增</button>}
               </div>
             </div>
 
             {/* Row 2：平台 + 排序 */}
-            <div style={{ padding: "6px 14px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ display: "flex", gap: 4, overflowX: "auto", flex: 1 }}>
+            <div style={{ padding: "8px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", gap: 5, overflowX: "auto", flex: 1 }}>
                 {PLATFORMS.map(p => (
                   <button key={p.id} style={wallPlatform===p.id ? S.filterActive : S.filterBtn}
                     onClick={() => setWallPlat(p.id)}>{p.label}</button>
@@ -398,11 +399,11 @@ export default function App() {
               </select>
             </div>
 
-            <div style={{ padding: "4px 14px 8px", fontSize: 11, color: "#555" }}>共 {filteredGames.length} 款</div>
+            <div style={{ padding: "5px 16px 10px", fontSize: 12, color: "#555" }}>共 {filteredGames.length} 款</div>
 
             {filteredGames.length === 0
-              ? <Empty icon="🎮" text="點擊「＋」加入第一款遊戲" />
-              : <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: cols >= 4 ? 7 : 10, padding: "0 14px 80px" }}>
+              ? <Empty icon="🎮" text="點擊「＋ 新增」加入第一款遊戲" />
+              : <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: isCompact ? 5 : 8, padding: "0 16px 80px" }}>
                   {filteredGames.map(g => {
                     const ab = getActiveBorrow(g.id);
                     return <GameCard key={g.id} game={g} borrow={ab} overdue={ab && isOverdue(ab)} cols={cols}
@@ -740,53 +741,52 @@ export default function App() {
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 function GameCard({ game, borrow, overdue, onClick, cols }) {
-  const small = cols >= 4;
+  const micro = cols >= 12;
+  const small = cols >= 8;
+  const medium = cols >= 6;
   const ownedLabel = game.ownedPlatform ? (PLAT_SLUG_LABEL[game.ownedPlatform] || null) : null;
   return (
     <div onClick={onClick}
       style={{ cursor:"pointer", WebkitTapHighlightColor:"transparent",
-               background:"#15151e", border:"1px solid #2a2a3a", borderRadius:10, overflow:"hidden",
+               background:"#15151e", border:"1px solid #2a2a3a", borderRadius: micro?6:8, overflow:"hidden",
                display:"flex", flexDirection:"column" }}>
       {/* 封面 2:3 */}
       <div style={{ position:"relative", width:"100%", paddingBottom:"150%", background:"#1a1a28", flexShrink:0 }}>
         {game.cover
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
-          : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize: small?20:28, color:"#333" }}>🎮</div>
+          : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize: micro?14:small?16:22, color:"#333" }}>🎮</div>
         }
-        {/* 左上：編號 */}
         {game.number != null && (
-          <div style={{ position:"absolute", top:4, left:4, background:"rgba(0,0,0,0.8)", color:"#bbb", fontSize:9, padding:"2px 5px", borderRadius:4, fontFamily:"monospace", fontWeight:700 }}>#{game.number}</div>
+          <div style={{ position:"absolute", top:3, left:3, background:"rgba(0,0,0,0.8)", color:"#ccc", fontSize: micro?7:9, padding:"1px 4px", borderRadius:3, fontFamily:"monospace", fontWeight:700 }}>#{game.number}</div>
         )}
-        {/* 右上：借出/逾期 */}
         {borrow && (
-          <div style={{ position:"absolute", top:4, right:4, background: overdue?"#e60012":"#d97706", color:"#fff", fontSize:9, padding:"2px 6px", borderRadius:4, fontWeight:700 }}>
+          <div style={{ position:"absolute", top:3, right:3, background: overdue?"#e60012":"#d97706", color:"#fff", fontSize: micro?7:9, padding:"1px 5px", borderRadius:3, fontWeight:700 }}>
             {overdue ? "逾期" : "借出"}
           </div>
         )}
       </div>
 
       {/* 卡片下方資訊 */}
-      <div style={{ padding: small ? "4px 5px" : "6px 8px", flex:1, display:"flex", flexDirection:"column", gap:2 }}>
-        {/* 遊戲名 */}
-        <div style={{ fontSize: small?9:11, fontWeight:600, color:"#ddd", lineHeight:1.3,
-                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp: small?1:2, WebkitBoxOrient:"vertical" }}>
-          {game.name}
-        </div>
-        {/* 中文類別（非微格才顯示） */}
-        {!small && game.genres?.[0] && (
-          <div style={{ fontSize:9, color:"#666" }}>{gZh(game.genres[0])}</div>
-        )}
-        {/* 平台 + 好玩度 */}
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:1 }}>
-          {ownedLabel
-            ? <span style={{ fontSize:8, background:"#e60012", color:"#fff", padding:"1px 4px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</span>
-            : <span />
-          }
-          {game.funRating != null && (
-            <span style={{ fontSize:8, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
+      {!micro && (
+        <div style={{ padding: small ? "4px 5px" : medium ? "5px 7px" : "7px 9px", flex:1, display:"flex", flexDirection:"column", gap:2 }}>
+          <div style={{ fontSize: small?9:medium?10:12, fontWeight:600, color:"#ddd", lineHeight:1.3,
+                        overflow:"hidden", display:"-webkit-box", WebkitLineClamp: small?1:2, WebkitBoxOrient:"vertical" }}>
+            {game.name}
+          </div>
+          {!small && game.genres?.[0] && (
+            <div style={{ fontSize: medium?9:10, color:"#666" }}>{gZh(game.genres[0])}</div>
           )}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:1 }}>
+            {ownedLabel
+              ? <span style={{ fontSize: small?7:9, background:"#e60012", color:"#fff", padding:"1px 4px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</span>
+              : <span />
+            }
+            {game.funRating != null && (
+              <span style={{ fontSize: small?7:9, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -812,9 +812,9 @@ function BorrowRow({ borrow, game, isAdmin, overdue, onReturn }) {
 function NavItem({ label, emoji, active, onClick, alert }) {
   return (
     <button style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"10px 0", background:"none", border:"none", cursor:"pointer", color: active?"#e60012":"#555", position:"relative", touchAction:"manipulation", WebkitTapHighlightColor:"transparent" }} onClick={onClick}>
-      <span style={{ fontSize:20 }}>{emoji}</span>
-      {alert && <span style={{ position:"absolute", top:8, left:"60%", width:7, height:7, background:"#e60012", borderRadius:"50%", display:"block" }} />}
-      <span style={{ fontSize:10, marginTop:2, fontWeight: active?700:400 }}>{label}</span>
+      <span style={{ fontSize:22 }}>{emoji}</span>
+      {alert && <span style={{ position:"absolute", top:8, left:"60%", width:8, height:8, background:"#e60012", borderRadius:"50%", display:"block" }} />}
+      <span style={{ fontSize:11, marginTop:2, fontWeight: active?700:400 }}>{label}</span>
     </button>
   );
 }
@@ -854,24 +854,24 @@ function Empty({ icon, text }) {
 
 const S = {
   app: { display:"flex", flexDirection:"column", height:"100vh", height:"100dvh", background:"#0c0c0f", color:"#e2e2e8", fontFamily:"-apple-system, 'Segoe UI', system-ui, sans-serif", overflow:"hidden" },
-  header: { background:"#111116", borderBottom:"1px solid #1e1e28", padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
-  iconBtn: { background:"transparent", border:"none", color:"#555", fontSize:20, cursor:"pointer", padding:"4px 6px", minHeight:40, minWidth:40, touchAction:"manipulation" },
+  header: { background:"#111116", borderBottom:"1px solid #1e1e28", padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
+  iconBtn: { background:"transparent", border:"none", color:"#666", fontSize:22, cursor:"pointer", padding:"4px 7px", minHeight:42, minWidth:42, touchAction:"manipulation" },
   main: { flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" },
-  filterBtn: { background:"#1a1a24", border:"1px solid #222", color:"#666", padding:"5px 12px", borderRadius:16, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", minHeight:34, touchAction:"manipulation", flexShrink:0 },
-  filterActive: { background:"#e60012", border:"1px solid #e60012", color:"#fff", padding:"5px 12px", borderRadius:16, fontSize:12, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap", minHeight:34, touchAction:"manipulation", flexShrink:0 },
-  addBtn: { background:"#e60012", border:"none", color:"#fff", padding:"5px 14px", borderRadius:16, fontSize:15, cursor:"pointer", fontWeight:900, minHeight:36, touchAction:"manipulation" },
-  sortSelect: { background:"#1a1a24", border:"1px solid #2a2a38", color:"#888", borderRadius:8, padding:"4px 6px", fontSize:11, cursor:"pointer", outline:"none", flexShrink:0, minHeight:34 },
-  sectionTitle: { fontSize:11, color:"#666", marginBottom:10, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 },
+  filterBtn: { background:"#1a1a24", border:"1px solid #252535", color:"#777", padding:"6px 14px", borderRadius:18, fontSize:13, cursor:"pointer", whiteSpace:"nowrap", minHeight:36, touchAction:"manipulation", flexShrink:0 },
+  filterActive: { background:"#e60012", border:"1px solid #e60012", color:"#fff", padding:"6px 14px", borderRadius:18, fontSize:13, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap", minHeight:36, touchAction:"manipulation", flexShrink:0 },
+  addBtn: { background:"#e60012", border:"none", color:"#fff", padding:"6px 16px", borderRadius:18, fontSize:14, cursor:"pointer", fontWeight:700, minHeight:36, touchAction:"manipulation" },
+  sortSelect: { background:"#1a1a24", border:"1px solid #2a2a38", color:"#888", borderRadius:8, padding:"5px 8px", fontSize:13, cursor:"pointer", outline:"none", flexShrink:0, minHeight:36 },
+  sectionTitle: { fontSize:13, color:"#666", marginBottom:12, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 },
   nav: { background:"#111116", borderTop:"1px solid #1e1e28", display:"flex", flexShrink:0, paddingBottom:"env(safe-area-inset-bottom, 0)" },
-  input: { width:"100%", background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:10, padding:"11px 12px", color:"#e2e2e8", fontSize:16, boxSizing:"border-box", outline:"none", appearance:"none" },
-  searchBtn: { background:"#e60012", border:"none", color:"#fff", padding:"0 16px", borderRadius:10, cursor:"pointer", fontWeight:700, flexShrink:0, fontSize:14, minHeight:44, touchAction:"manipulation" },
+  input: { width:"100%", background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:10, padding:"12px 14px", color:"#e2e2e8", fontSize:16, boxSizing:"border-box", outline:"none", appearance:"none" },
+  searchBtn: { background:"#e60012", border:"none", color:"#fff", padding:"0 18px", borderRadius:10, cursor:"pointer", fontWeight:700, flexShrink:0, fontSize:15, minHeight:46, touchAction:"manipulation" },
   resultCard: { background:"#1a1a24", borderRadius:12, overflow:"hidden", border:"1px solid #2a2a38" },
-  borrowedBox: { background:"#1f1a00", border:"1px solid #4a3800", borderRadius:10, padding:12, marginBottom:10 },
-  overdueBox: { background:"#1f0000", border:"1px solid #5a0000", borderRadius:10, padding:12, marginBottom:10 },
-  overdueAlert: { background:"#1f0000", border:"1px solid #4a0000", borderRadius:9, padding:"10px 12px", fontSize:13, color:"#f87171", marginBottom:12 },
-  redBtn: { display:"block", width:"100%", background:"#e60012", border:"none", color:"#fff", padding:"13px", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", textAlign:"center", boxSizing:"border-box", touchAction:"manipulation", minHeight:48 },
-  greenBtn: { display:"block", width:"100%", background:"#16a34a", border:"none", color:"#fff", padding:"13px", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", textAlign:"center", marginTop:12, boxSizing:"border-box", touchAction:"manipulation", minHeight:48 },
-  deleteBtn: { display:"block", width:"100%", background:"transparent", border:"1px solid #3a1a1a", color:"#f87171", padding:"11px", borderRadius:12, fontSize:13, cursor:"pointer", textAlign:"center", marginTop:12, boxSizing:"border-box", touchAction:"manipulation" },
-  disabledBtn: { display:"block", width:"100%", background:"#1e1e28", border:"none", color:"#444", padding:"13px", borderRadius:12, fontSize:15, cursor:"not-allowed", textAlign:"center", boxSizing:"border-box", minHeight:48 },
-  fieldLabel: { fontSize:10, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:0.5 },
+  borrowedBox: { background:"#1f1a00", border:"1px solid #4a3800", borderRadius:10, padding:14, marginBottom:12 },
+  overdueBox: { background:"#1f0000", border:"1px solid #5a0000", borderRadius:10, padding:14, marginBottom:12 },
+  overdueAlert: { background:"#1f0000", border:"1px solid #4a0000", borderRadius:9, padding:"11px 14px", fontSize:14, color:"#f87171", marginBottom:12 },
+  redBtn: { display:"block", width:"100%", background:"#e60012", border:"none", color:"#fff", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", textAlign:"center", boxSizing:"border-box", touchAction:"manipulation", minHeight:50 },
+  greenBtn: { display:"block", width:"100%", background:"#16a34a", border:"none", color:"#fff", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", textAlign:"center", marginTop:12, boxSizing:"border-box", touchAction:"manipulation", minHeight:50 },
+  deleteBtn: { display:"block", width:"100%", background:"transparent", border:"1px solid #3a1a1a", color:"#f87171", padding:"12px", borderRadius:12, fontSize:14, cursor:"pointer", textAlign:"center", marginTop:12, boxSizing:"border-box", touchAction:"manipulation" },
+  disabledBtn: { display:"block", width:"100%", background:"#1e1e28", border:"none", color:"#444", padding:"14px", borderRadius:12, fontSize:16, cursor:"not-allowed", textAlign:"center", boxSizing:"border-box", minHeight:50 },
+  fieldLabel: { fontSize:11, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:0.5 },
 };
