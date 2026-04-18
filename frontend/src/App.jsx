@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.20";
+const VERSION = "V1.13.21";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -549,6 +549,48 @@ export default function App() {
     setCoverSearching(false);
   }
 
+  function trimWhiteBorder(img, threshold = 240) {
+    // 先畫原圖到 canvas 取得像素
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    const w = c.width, h = c.height;
+
+    const isLight = (x, y) => {
+      const i = (y * w + x) * 4;
+      return px[i] > threshold && px[i+1] > threshold && px[i+2] > threshold;
+    };
+
+    let top = 0, bottom = h - 1, left = 0, right = w - 1;
+    // 找上邊界
+    outer: for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) { if (!isLight(x, y)) { top = y; break outer; } }
+    }
+    // 找下邊界
+    outer: for (let y = h - 1; y >= 0; y--) {
+      for (let x = 0; x < w; x++) { if (!isLight(x, y)) { bottom = y; break outer; } }
+    }
+    // 找左邊界
+    outer: for (let x = 0; x < w; x++) {
+      for (let y = top; y <= bottom; y++) { if (!isLight(x, y)) { left = x; break outer; } }
+    }
+    // 找右邊界
+    outer: for (let x = w - 1; x >= 0; x--) {
+      for (let y = top; y <= bottom; y++) { if (!isLight(x, y)) { right = x; break outer; } }
+    }
+
+    // 如果裁掉的面積 < 5%，不裁（避免誤裁）
+    const cropW = right - left + 1, cropH = bottom - top + 1;
+    if (cropW / w > 0.95 && cropH / h > 0.95) return img;
+
+    const out = document.createElement("canvas");
+    out.width = cropW; out.height = cropH;
+    out.getContext("2d").drawImage(c, left, top, cropW, cropH, 0, 0, cropW, cropH);
+    return out;
+  }
+
   async function handleCoverImgUpload(e) {
     const file = e.target.files?.[0];
     if (!file || !selGame) return;
@@ -557,17 +599,22 @@ export default function App() {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
+        // 自動裁白邊
+        const trimmed = trimWhiteBorder(img);
         const max = 400;
-        const ratio = Math.min(1, max / Math.max(img.width, img.height));
+        const srcW = trimmed.width || img.width;
+        const srcH = trimmed.height || img.height;
+        const ratio = Math.min(1, max / Math.max(srcW, srcH));
         const canvas = document.createElement("canvas");
-        canvas.width = img.width * ratio; canvas.height = img.height * ratio;
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.width = srcW * ratio; canvas.height = srcH * ratio;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(trimmed instanceof HTMLCanvasElement ? trimmed : img,
+          0, 0, canvas.width, canvas.height);
         URL.revokeObjectURL(url);
         resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
       img.src = url;
     });
-    // 詢問是否分享到社群
     const share = window.confirm("要將這張封面分享到社群庫嗎？\n其他人也可以使用你上傳的封面！");
     await updateCover(selGame.id, base64, share);
   }
