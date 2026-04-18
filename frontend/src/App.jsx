@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.8";
+const VERSION = "V1.13.10";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -370,8 +370,19 @@ export default function App() {
   }
 
   function cleanGameName(name) {
-    // 去除 [ Switch ] [ NS2 ] [ PS5 ] 等平台前綴
-    return name.replace(/^\[\s*[^\]]+\s*\]\s*/g, '').trim();
+    if (!name) return name;
+    // 優先取《》內文字
+    const m = name.match(/[《〈](.*?)[》〉]/);
+    if (m) return m[1].trim();
+    // 去掉 [ 平台 ] 前綴
+    name = name.replace(/^\[.*?\]\s*/, '');
+    // 去掉購物資訊
+    name = name.replace(/\s+(NS2?|PS[1-5]?|XBOX)\s+.*/i, '');
+    name = name.replace(/\s+紅利\d+.*/g, '');
+    name = name.replace(/\s+NT\$.*/g, '');
+    name = name.replace(/\s+前往購買.*/g, '');
+    name = name.replace(/\s*（[^）]{1,30}）\s*$/, '');
+    return name.trim();
   }
 
   async function addGameFromGamer(r) {
