@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.8.0";
+const VERSION = "V1.8.2";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -686,28 +686,46 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
   const small = cols >= 4;
   const ownedLabel = game.ownedPlatform ? (PLAT_SLUG_LABEL[game.ownedPlatform] || null) : null;
   return (
-    <div style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent" }} onClick={onClick}>
-      <div style={{ position:"relative", width:"100%", paddingBottom:"150%", background:"#1a1a24", borderRadius: small?6:8, overflow:"hidden" }}>
+    <div onClick={onClick}
+      style={{ cursor:"pointer", WebkitTapHighlightColor:"transparent",
+               background:"#15151e", border:"1px solid #2a2a3a", borderRadius:10, overflow:"hidden",
+               display:"flex", flexDirection:"column" }}>
+      {/* 封面 2:3 */}
+      <div style={{ position:"relative", width:"100%", paddingBottom:"150%", background:"#1a1a28", flexShrink:0 }}>
         {game.cover
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
-          : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize: small?18:26, color:"#333" }}>🎮</div>
+          : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize: small?20:28, color:"#333" }}>🎮</div>
         }
+        {/* 左上：編號 */}
         {game.number != null && (
-          <div style={{ position:"absolute", top:3, left:3, background:"rgba(0,0,0,0.75)", color:"#aaa", fontSize:8, padding:"1px 4px", borderRadius:3, fontFamily:"monospace" }}>#{game.number}</div>
+          <div style={{ position:"absolute", top:4, left:4, background:"rgba(0,0,0,0.8)", color:"#bbb", fontSize:9, padding:"2px 5px", borderRadius:4, fontFamily:"monospace", fontWeight:700 }}>#{game.number}</div>
         )}
-        {game.funRating != null && (
-          <div style={{ position:"absolute", bottom:3, left:3, background:"rgba(0,0,0,0.75)", color:"#fbbf24", fontSize:8, padding:"1px 4px", borderRadius:3 }}>★{game.funRating}</div>
-        )}
-        {ownedLabel && !small && (
-          <div style={{ position:"absolute", bottom:3, right:3, background:"rgba(230,0,18,0.85)", color:"#fff", fontSize:8, padding:"1px 5px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</div>
-        )}
+        {/* 右上：借出/逾期 */}
         {borrow && (
-          <div style={{ position:"absolute", top:3, right:3, background: overdue?"#e60012":"#d97706", color:"#fff", fontSize:8, padding:"1px 4px", borderRadius:3, fontWeight:700 }}>
-            {overdue?"逾期":"借出"}
+          <div style={{ position:"absolute", top:4, right:4, background: overdue?"#e60012":"#d97706", color:"#fff", fontSize:9, padding:"2px 6px", borderRadius:4, fontWeight:700 }}>
+            {overdue ? "逾期" : "借出"}
           </div>
         )}
       </div>
-      {!small && <div style={{ marginTop:4, fontSize:10, color:"#aaa", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{game.name}</div>}
+
+      {/* 卡片下方資訊 */}
+      <div style={{ padding: small ? "5px 6px" : "7px 8px", flex:1, display:"flex", flexDirection:"column", gap:3 }}>
+        {/* 遊戲名 */}
+        <div style={{ fontSize: small?10:11, fontWeight:600, color:"#ddd", lineHeight:1.3,
+                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+          {game.name}
+        </div>
+        {/* 平台 + 好玩度 */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:1 }}>
+          {ownedLabel
+            ? <span style={{ fontSize:9, background:"#e60012", color:"#fff", padding:"1px 5px", borderRadius:3, fontWeight:700 }}>{ownedLabel}</span>
+            : <span />
+          }
+          {game.funRating != null && (
+            <span style={{ fontSize:9, color:"#fbbf24", fontWeight:700 }}>★{game.funRating}</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
