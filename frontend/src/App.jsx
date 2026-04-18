@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.8";
+const VERSION = "V1.12.9";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -307,16 +307,25 @@ export default function App() {
   async function translateGameName(englishName) {
     if (!englishName) return { name: englishName, cover: null };
 
-    // Step 1：查本地巴哈商城對照表（最快，不需 API）
+    // Step 1：即時搜尋巴哈商城（最準，有封面）
     try {
-      const res = await fetch(`/api/gamer-name?q=${encodeURIComponent(englishName)}`);
+      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(englishName)}`);
       const data = await res.json();
-      if (data.zh_name && data.zh_name.length > 0) {
+      if (data.zh_name && data.zh_name.length > 1) {
         return { name: data.zh_name, cover: data.cover_url || null };
       }
     } catch {}
 
-    // Step 2：Claude 查任天堂台灣官方名（需要 API Key）
+    // Step 2：查本地巴哈名稱庫（爬蟲存的，速度快）
+    try {
+      const res = await fetch(`/api/gamer-name?q=${encodeURIComponent(englishName)}`);
+      const data = await res.json();
+      if (data.zh_name && data.zh_name.length > 1) {
+        return { name: data.zh_name, cover: data.cover_url || null };
+      }
+    } catch {}
+
+    // Step 3：Claude 查任天堂台灣官方名
     const ck = claudeKey();
     if (ck) {
       try {
@@ -329,7 +338,7 @@ export default function App() {
         }
       } catch {}
 
-      // Step 3：Claude 通用翻譯
+      // Step 4：Claude 通用翻譯
       try {
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -348,8 +357,7 @@ export default function App() {
               "- The Legend of Zelda Tears of the Kingdom → 薩爾達傳說 王國之淚\n" +
               "- Super Mario Bros. Wonder → 超級瑪利歐兄弟 驚奇\n" +
               "- Pikmin 4 → 皮克敏4\n" +
-              "- Hades II → Hades II\n" +
-              "- Pokemon Scarlet → 寶可夢 朱"
+              "- Hades II → Hades II"
             ),
             messages: [{ role: "user", content: englishName }]
           })

@@ -409,6 +409,67 @@ async def gamer_name_lookup(q: str):
                 "gamer_sn": best["gamer_sn"] or ""}
     return {"zh_name": "", "cover_url": ""}
 
+def gamer_cover_url(sn: int) -> str:
+    """根據巴哈 ACG sn 組合封面 URL"""
+    folder = sn % 100
+    padded = str(sn).zfill(10)
+    return f"https://p2.bahamut.com.tw/B/ACG/c/{folder:02d}/{padded}.JPG"
+
+@app.get("/api/gamer-search")
+async def gamer_search(q: str):
+    """即時搜尋巴哈商城，回傳中文名稱與封面 URL"""
+    if not q.strip():
+        return {"zh_name": "", "cover_url": ""}
+    url = f"https://buy.gamer.com.tw/search.php?kw={httpx.URL(q)}"
+    try:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            res = await client.get(
+                f"https://buy.gamer.com.tw/search.php?kw={q}",
+                headers=GAMER_HEADERS
+            )
+        if res.status_code != 200:
+            return {"zh_name": "", "cover_url": ""}
+        soup = BeautifulSoup(res.text, "html.parser")
+        # 找 atmItem 連結
+        links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
+        if not links:
+            return {"zh_name": "", "cover_url": ""}
+        lk = links[0]
+        m = re.search(r'sn=(\d+)', lk.get("href",""))
+        sn = int(m.group(1)) if m else None
+        # 取名稱
+        zh_name = (lk.get("title") or lk.get_text(strip=True) or "").strip()
+        zh_name = re.sub(r'[《》\u300a\u300b]', '', zh_name).strip()
+        # 封面：找 img 的 ACG CDN URL，或用 sn 組合
+        cover_url = None
+        img = lk.find("img") or (lk.parent.find("img") if lk.parent else None)
+        if img:
+            src = img.get("src") or img.get("data-src") or ""
+            if "bahamut.com.tw" in src or "p2.baha" in src:
+                cover_url = src if src.startswith("http") else "https:" + src
+        # 找頁面中的 bahamut 封面 URL
+        if not cover_url:
+            for tag in soup.find_all("img"):
+                src = tag.get("src","")
+                if "p2.bahamut.com.tw" in src:
+                    cover_url = src if src.startswith("http") else "https:" + src
+                    break
+        # 找 acgDetail 的 sn 來組合封面 URL
+        if not cover_url:
+            acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+            for al in acg_links:
+                m2 = re.search(r's=(\d+)', al.get("href",""))
+                if m2:
+                    cover_url = gamer_cover_url(int(m2.group(1)))
+                    break
+        # 最後用 atmItem sn 試試（有時候 buy sn ≈ acg sn）
+        if not cover_url and sn:
+            cover_url = gamer_cover_url(sn)
+        return {"zh_name": zh_name, "cover_url": cover_url or ""}
+    except Exception as e:
+        print(f"[gamer-search] {e}")
+        return {"zh_name": "", "cover_url": ""}
+
 @app.get("/api/gamer-stats")
 def gamer_stats():
     conn = get_db()
