@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.5";
+const VERSION = "V1.12.6";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -307,17 +307,21 @@ export default function App() {
   async function translateGameName(englishName) {
     if (!englishName) return englishName;
 
-    // Step 1：查任天堂台灣官網官方中文名
-    try {
-      const res = await fetch(`/api/nintendo-name?q=${encodeURIComponent(englishName)}`);
-      const data = await res.json();
-      if (data.name && data.name !== englishName && data.name.length > 0) {
-        return data.name;
-      }
-    } catch {}
-
-    // Step 2：Claude 翻譯（需要 API Key）
+    // Step 1：查任天堂台灣官方中文名（透過 Claude 知識庫）
     const ck = claudeKey();
+    if (ck) {
+      try {
+        const res = await fetch(`/api/nintendo-name?q=${encodeURIComponent(englishName)}`, {
+          headers: { "x-claude-key": ck }
+        });
+        const data = await res.json();
+        if (data.name && data.name !== englishName) {
+          return data.name;
+        }
+      } catch {}
+    }
+
+    // Step 2：Claude 通用翻譯（任天堂找不到，或非任天堂遊戲）
     if (!ck) return englishName;
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {

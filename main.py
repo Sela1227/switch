@@ -285,36 +285,44 @@ def delete_borrow(borrow_id: str):
 
 # ── Config ────────────────────────────────────────────────────────────────
 @app.get("/api/nintendo-name")
-async def nintendo_name(q: str):
-    """查任天堂台灣官網的官方中文遊戲名稱"""
+async def nintendo_name(q: str, request: Request = None):
+    """查任天堂台灣官方中文遊戲名稱（透過 Claude 知識庫）"""
+    claude_key = request.headers.get("x-claude-key", "") if request else ""
+    if not claude_key or not q:
+        return {"name": ""}
     try:
-        url = (
-            "https://searching.nintendo-europe.com/zh-Hant/select"
-            f"?q={q}&rows=3&start=0&type=GAME&nso=0&sort=score+desc"
-        )
-        async with httpx.AsyncClient(timeout=8) as client:
-            res = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        if res.status_code != 200:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": claude_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 40,
+                    "system": (
+                        "你是任天堂台灣遊戲名稱專家。\n"
+                        "任務：給定英文遊戲名，回傳任天堂台灣官方的繁體中文名稱。\n"
+                        "規則：\n"
+                        "1. 只回傳任天堂台灣官方使用的繁體中文名稱\n"
+                        "2. 若你不確定官方中文名，回傳空字串\n"
+                        "3. 非任天堂遊戲，回傳空字串\n"
+                        "4. 只回傳名稱本身，不加說明\n"
+                        "範例：\n"
+                        "- Luigi's Mansion 3 → 路易吉洋樓3\n"
+                        "- Pikmin 3 Deluxe → 皮克敏3 Deluxe\n"
+                        "- Super Mario Bros. Wonder → 超級瑪利歐兄弟 驚奇\n"
+                        "- The Legend of Zelda Tears of the Kingdom → 薩爾達傳說 王國之淚\n"
+                        "- Hades II → （空字串，非任天堂遊戲）"
+                    ),
+                    "messages": [{"role": "user", "content": q}]
+                },
+                timeout=8
+            )
+        name = res.json().get("content", [{}])[0].get("text", "").strip()
+        # 空括號或空字串都視為找不到
+        if not name or name.startswith("（") or name == "空字串":
             return {"name": ""}
-        data = res.json()
-        items = data.get("response", {}).get("docs", [])
-        if not items:
-            return {"name": ""}
-        # 找最接近的結果（比對英文名）
-        q_lower = q.lower()
-        best = None
-        for item in items:
-            title_en = (item.get("title") or "").lower()
-            if q_lower in title_en or title_en in q_lower:
-                best = item
-                break
-        if not best:
-            best = items[0]
-        # 優先取繁中名稱
-        zh_name = (best.get("title_extras_txt") or [None])[0] or best.get("title") or ""
-        return {"name": zh_name.strip()}
-    except Exception as e:
-        print(f"[nintendo-name] {e}")
+        return {"name": name}
+    except:
         return {"name": ""}
 
 @app.get("/api/config")
