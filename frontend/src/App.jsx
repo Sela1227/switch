@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.9.3";
+const VERSION = "V1.9.4";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -574,113 +574,110 @@ export default function App() {
         const gameSlugs = (g.platforms || []).filter(s => MAJOR_SLUGS.includes(s));
         return (
           <Modal title="遊戲資訊" onClose={() => setModal(null)}>
-            {/* 封面 */}
+            {/* 封面 - 較小，橫式 */}
             {g.cover && (
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                <img src={g.cover} style={{ height: 160, objectFit: "contain", borderRadius: 8 }} alt="" />
+              <div style={{ display:"flex", gap:12, marginBottom:12, alignItems:"flex-start" }}>
+                <img src={g.cover} style={{ height:100, objectFit:"contain", borderRadius:6, flexShrink:0 }} alt="" />
+                <div style={{ flex:1, minWidth:0, paddingTop:4 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:"#e2e2e8", lineHeight:1.4, marginBottom:4 }}>{g.name}</div>
+                  {g.genres?.length > 0 && (
+                    <div style={{ display:"flex", gap:3, flexWrap:"wrap", marginBottom:4 }}>
+                      {g.genres.map(gn => <span key={gn} style={{ background:"#1e1e2e", color:"#888", fontSize:10, padding:"2px 7px", borderRadius:8 }}>{gZh(gn)}</span>)}
+                    </div>
+                  )}
+                  {g.released && <div style={{ fontSize:10, color:"#555" }}>{g.released}</div>}
+                </div>
               </div>
             )}
 
-            {/* ── 可編輯資訊區 ── */}
-            <div style={{ background: "#1a1a24", borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* ── 編輯區（全部塞在一個緊湊盒子）── */}
+            <div style={{ background:"#1a1a24", borderRadius:10, padding:"10px 12px", marginBottom:10, display:"flex", flexDirection:"column", gap:8 }}>
 
               {/* 名稱 */}
               <div>
                 <div style={S.fieldLabel}>遊戲名稱</div>
-                <input style={{ ...S.input, fontSize: 14 }} value={editForm.name}
+                <input style={{ ...S.input, padding:"8px 10px", fontSize:14 }} value={editForm.name}
                   onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
               </div>
 
-              {/* 我的平台版本：緊湊 */}
-              <div>
-                <div style={S.fieldLabel}>我的版本</div>
-                <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                  {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => {
-                    const pc = { "nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791","xbox-series-x":"#107c10","xbox-series-s":"#107c10","xbox-one":"#107c10","pc":"#1b6ac9" }[s] || "#444";
-                    const isSelected = editForm.ownedPlatform === s;
-                    return (
-                      <button key={s}
-                        style={{ background: isSelected ? pc : "#252535",
-                                 border: `1px solid ${isSelected ? pc : "#333"}`,
-                                 color: isSelected ? "#fff" : "#777",
-                                 padding:"4px 12px", borderRadius:14, fontSize:12, cursor:"pointer",
-                                 fontWeight: isSelected?700:400, touchAction:"manipulation", minHeight:30 }}
-                        onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s ? "" : s }))}>
-                        {PLAT_SLUG_LABEL[s]||s}
-                      </button>
-                    );
-                  })}
+              {/* 版本 + 編號 + 好玩度 同一排 */}
+              <div style={{ display:"flex", gap:8, alignItems:"flex-end", flexWrap:"wrap" }}>
+                {/* 版本 */}
+                <div style={{ flex:"0 0 auto" }}>
+                  <div style={S.fieldLabel}>版本</div>
+                  <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
+                    {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => {
+                      const pc = {"nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791","xbox-series-x":"#107c10","xbox-series-s":"#107c10","xbox-one":"#107c10","pc":"#1b6ac9"}[s]||"#444";
+                      const sel = editForm.ownedPlatform === s;
+                      return (
+                        <button key={s} onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s?"":s }))}
+                          style={{ background: sel?pc:"#252535", border:`1px solid ${sel?pc:"#333"}`,
+                                   color: sel?"#fff":"#666", padding:"3px 9px", borderRadius:10,
+                                   fontSize:11, cursor:"pointer", fontWeight:sel?700:400, touchAction:"manipulation" }}>
+                          {PLAT_SLUG_LABEL[s]||s}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-
-              {/* 編號 + 好玩度 */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1 }}>
+                {/* 編號 */}
+                <div style={{ flex:1, minWidth:60 }}>
                   <div style={S.fieldLabel}>編號</div>
-                  <input type="number" style={{ ...S.input, padding:"7px 8px", fontSize:16 }}
+                  <input type="number" style={{ ...S.input, padding:"7px 8px", fontSize:15 }}
                     placeholder="—" value={editForm.number}
                     onChange={e => setEditForm(f => ({ ...f, number: e.target.value }))} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={S.fieldLabel}>好玩度 (1–10)</div>
-                  <input type="number" min="1" max="10" style={{ ...S.input, padding:"7px 8px", fontSize:16 }}
+                {/* 好玩度 */}
+                <div style={{ flex:1, minWidth:80 }}>
+                  <div style={S.fieldLabel}>好玩度 1–10</div>
+                  <input type="number" min="1" max="10" style={{ ...S.input, padding:"7px 8px", fontSize:15 }}
                     placeholder="—" value={editForm.funRating}
                     onChange={e => setEditForm(f => ({ ...f, funRating: e.target.value }))} />
                 </div>
               </div>
 
-              {/* 類別（中文，從資料來） */}
-              {g.genres?.length > 0 && (
-                <div>
-                  <div style={S.fieldLabel}>類別</div>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {g.genres.map(gn => (
-                      <span key={gn} style={{ background: "#222230", color: "#aaa", fontSize: 11, padding: "4px 10px", borderRadius: 12 }}>
-                        {gZh(gn)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 發行日期 */}
-              {g.released && (
-                <div style={{ fontSize: 11, color: "#555" }}>發行：{g.released}</div>
-              )}
-
-              {/* 儲存 */}
-              <button style={S.redBtn} disabled={saving} onClick={() => saveGameEdit(g.id)}>
+              {/* 儲存 - 較小 */}
+              <button style={{ ...S.redBtn, padding:"9px", fontSize:14, minHeight:40 }}
+                disabled={saving} onClick={() => saveGameEdit(g.id)}>
                 {saving ? "儲存中…" : "💾 儲存"}
               </button>
             </div>
 
             {/* 借出狀態 */}
             {ab ? (
-              <div style={od ? S.overdueBox : S.borrowedBox}>
-                <div style={{ fontWeight:700, marginBottom:8, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
+              <div style={{ ...od ? S.overdueBox : S.borrowedBox, padding:10, marginBottom:8 }}>
+                <div style={{ fontWeight:700, marginBottom:6, fontSize:13, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
                 <Row label="借用人" val={ab.borrowerName} />
-                <Row label="借出日期" val={ab.borrowDate} />
+                <Row label="借出" val={ab.borrowDate} />
                 <Row label="預計歸還" val={ab.expectedReturn} highlight={od} />
-                {od && <div style={{ color:"#f87171", fontSize:12, marginTop:4 }}>已逾期 {daysDiff(ab.expectedReturn)} 天</div>}
-                {isAdmin && <button style={S.greenBtn} onClick={() => { setSelBorrow(ab); setModal("return"); }}>✓ 確認歸還</button>}
+                {od && <div style={{ color:"#f87171", fontSize:11, marginTop:3 }}>逾期 {daysDiff(ab.expectedReturn)} 天</div>}
+                {isAdmin && <button style={{ ...S.greenBtn, padding:"9px", fontSize:13, minHeight:40, marginTop:8 }}
+                  onClick={() => { setSelBorrow(ab); setModal("return"); }}>✓ 確認歸還</button>}
               </div>
             ) : (
-              isAdmin && <button style={S.redBtn} onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>📤 登記借出</button>
+              isAdmin && <button style={{ ...S.redBtn, padding:"9px", fontSize:14, minHeight:40, marginBottom:8 }}
+                onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>
+                📤 登記借出
+              </button>
             )}
 
             {/* 借出紀錄 */}
             {hist.length > 0 && (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ ...S.fieldLabel, marginBottom: 6 }}>借出紀錄</div>
+              <div style={{ marginBottom:8 }}>
+                <div style={{ ...S.fieldLabel, marginBottom:5 }}>借出紀錄</div>
                 {hist.map(h => (
-                  <div key={h.id} style={{ display:"flex", justifyContent:"space-between", background:"#1a1a24", borderRadius:8, padding:"6px 10px", marginBottom:3 }}>
-                    <span style={{ color:"#ccc", fontSize:13 }}>{h.borrowerName}</span>
+                  <div key={h.id} style={{ display:"flex", justifyContent:"space-between", background:"#1a1a24", borderRadius:7, padding:"5px 9px", marginBottom:3 }}>
+                    <span style={{ color:"#ccc", fontSize:12 }}>{h.borrowerName}</span>
                     <span style={{ fontSize:11, color: h.returnedAt?"#4ade80":"#fbbf24" }}>{h.returnedAt ? `已還 ${h.returnedAt.split("T")[0]}` : "借出中"}</span>
                   </div>
                 ))}
               </div>
             )}
-            {isAdmin && !ab && <button style={S.deleteBtn} onClick={() => deleteGame(g.id)}>🗑 移除此遊戲</button>}
+            {isAdmin && !ab && (
+              <button style={{ ...S.deleteBtn, padding:"9px", fontSize:13 }} onClick={() => deleteGame(g.id)}>
+                🗑 移除此遊戲
+              </button>
+            )}
           </Modal>
         );
       })()}
@@ -800,16 +797,17 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
           </div>
         )}
 
-        {/* 編號 - 左下角，優雅設計 */}
+        {/* 編號 - 左下角，明顯白色 */}
         {game.number != null && (
           <div style={{
-            position:"absolute", bottom: micro?2:4, left: micro?2:4,
-            background:"rgba(0,0,0,0.7)", backdropFilter:"blur(4px)",
-            color:"#fff", fontSize: micro?7:10,
-            padding: micro?"1px 3px":"2px 7px",
+            position:"absolute", bottom: micro?3:5, left: micro?3:5,
+            background:"rgba(0,0,0,0.82)",
+            color:"#fff", fontSize: micro?8:11,
+            padding: micro?"1px 4px":"3px 8px",
             borderRadius: micro?3:5,
             fontFamily:"monospace", fontWeight:900,
-            letterSpacing:0.5, lineHeight:1.4
+            letterSpacing:0.5, lineHeight:1.4,
+            border:"1px solid rgba(255,255,255,0.15)"
           }}>{game.number}</div>
         )}
 
