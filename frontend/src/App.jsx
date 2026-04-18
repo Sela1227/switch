@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.9.4";
+const VERSION = "V1.9.5";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -600,35 +600,34 @@ export default function App() {
                   onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
               </div>
 
-              {/* 版本 + 編號 + 好玩度 同一排 */}
-              <div style={{ display:"flex", gap:8, alignItems:"flex-end", flexWrap:"wrap" }}>
-                {/* 版本 */}
-                <div style={{ flex:"0 0 auto" }}>
-                  <div style={S.fieldLabel}>版本</div>
-                  <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
-                    {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => {
-                      const pc = {"nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791","xbox-series-x":"#107c10","xbox-series-s":"#107c10","xbox-one":"#107c10","pc":"#1b6ac9"}[s]||"#444";
-                      const sel = editForm.ownedPlatform === s;
-                      return (
-                        <button key={s} onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s?"":s }))}
-                          style={{ background: sel?pc:"#252535", border:`1px solid ${sel?pc:"#333"}`,
-                                   color: sel?"#fff":"#666", padding:"3px 9px", borderRadius:10,
-                                   fontSize:11, cursor:"pointer", fontWeight:sel?700:400, touchAction:"manipulation" }}>
-                          {PLAT_SLUG_LABEL[s]||s}
-                        </button>
-                      );
-                    })}
-                  </div>
+              {/* 版本 - 獨立一列 */}
+              <div>
+                <div style={S.fieldLabel}>版本</div>
+                <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                  {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => {
+                    const pc = {"nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791","xbox-series-x":"#107c10","xbox-series-s":"#107c10","xbox-one":"#107c10","pc":"#1b6ac9"}[s]||"#444";
+                    const sel = editForm.ownedPlatform === s;
+                    return (
+                      <button key={s} onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s?"":s }))}
+                        style={{ background: sel?pc:"#252535", border:`1px solid ${sel?pc:"#333"}`,
+                                 color: sel?"#fff":"#666", padding:"4px 12px", borderRadius:12,
+                                 fontSize:12, cursor:"pointer", fontWeight:sel?700:400, touchAction:"manipulation" }}>
+                        {PLAT_SLUG_LABEL[s]||s}
+                      </button>
+                    );
+                  })}
                 </div>
-                {/* 編號 */}
-                <div style={{ flex:1, minWidth:60 }}>
+              </div>
+
+              {/* 編號 + 好玩度 同一排 */}
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1 }}>
                   <div style={S.fieldLabel}>編號</div>
                   <input type="number" style={{ ...S.input, padding:"7px 8px", fontSize:15 }}
                     placeholder="—" value={editForm.number}
                     onChange={e => setEditForm(f => ({ ...f, number: e.target.value }))} />
                 </div>
-                {/* 好玩度 */}
-                <div style={{ flex:1, minWidth:80 }}>
+                <div style={{ flex:1 }}>
                   <div style={S.fieldLabel}>好玩度 1–10</div>
                   <input type="number" min="1" max="10" style={{ ...S.input, padding:"7px 8px", fontSize:15 }}
                     placeholder="—" value={editForm.funRating}
@@ -636,15 +635,29 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 儲存 - 較小 */}
-              <button style={{ ...S.redBtn, padding:"9px", fontSize:14, minHeight:40 }}
-                disabled={saving} onClick={() => saveGameEdit(g.id)}>
-                {saving ? "儲存中…" : "💾 儲存"}
-              </button>
+              {/* 三個按鈕同一列 */}
+              <div style={{ display:"flex", gap:6 }}>
+                <button style={{ flex:2, background:"#e60012", border:"none", color:"#fff", padding:"9px", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", touchAction:"manipulation" }}
+                  disabled={saving} onClick={() => saveGameEdit(g.id)}>
+                  {saving ? "…" : "💾 儲存"}
+                </button>
+                {!ab && isAdmin && (
+                  <button style={{ flex:2, background:"#1a2a1a", border:"1px solid #2a4a2a", color:"#4ade80", padding:"9px", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", touchAction:"manipulation" }}
+                    onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>
+                    📤 借出
+                  </button>
+                )}
+                {!ab && isAdmin && (
+                  <button style={{ flex:1, background:"transparent", border:"1px solid #3a1a1a", color:"#f87171", padding:"9px", borderRadius:10, fontSize:13, cursor:"pointer", touchAction:"manipulation" }}
+                    onClick={() => deleteGame(g.id)}>
+                    🗑
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* 借出狀態 */}
-            {ab ? (
+            {ab && (
               <div style={{ ...od ? S.overdueBox : S.borrowedBox, padding:10, marginBottom:8 }}>
                 <div style={{ fontWeight:700, marginBottom:6, fontSize:13, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
                 <Row label="借用人" val={ab.borrowerName} />
@@ -654,11 +667,6 @@ export default function App() {
                 {isAdmin && <button style={{ ...S.greenBtn, padding:"9px", fontSize:13, minHeight:40, marginTop:8 }}
                   onClick={() => { setSelBorrow(ab); setModal("return"); }}>✓ 確認歸還</button>}
               </div>
-            ) : (
-              isAdmin && <button style={{ ...S.redBtn, padding:"9px", fontSize:14, minHeight:40, marginBottom:8 }}
-                onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>
-                📤 登記借出
-              </button>
             )}
 
             {/* 借出紀錄 */}
@@ -672,11 +680,6 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            )}
-            {isAdmin && !ab && (
-              <button style={{ ...S.deleteBtn, padding:"9px", fontSize:13 }} onClick={() => deleteGame(g.id)}>
-                🗑 移除此遊戲
-              </button>
             )}
           </Modal>
         );
@@ -791,23 +794,25 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
             position:"absolute", top: micro?2:4, right: micro?2:4,
             background: overdue ? "#e60012" : "#c47d00",
             color:"#fff", fontSize: micro?7:9, padding: micro?"1px 3px":"2px 6px",
-            borderRadius: 4, fontWeight:700, lineHeight:1.3
+            borderRadius: 4, fontWeight:700, lineHeight:1.3, zIndex:3
           }}>
             {overdue ? "逾期" : "借出"}
           </div>
         )}
 
-        {/* 編號 - 左下角，明顯白色 */}
-        {game.number != null && (
+        {/* 編號 - 右下角，明顯，在漸層之上 */}
+        {game.number != null && game.number !== "" && (
           <div style={{
-            position:"absolute", bottom: micro?3:5, left: micro?3:5,
-            background:"rgba(0,0,0,0.82)",
-            color:"#fff", fontSize: micro?8:11,
-            padding: micro?"1px 4px":"3px 8px",
-            borderRadius: micro?3:5,
+            position:"absolute", bottom: micro?3:5, right: micro?3:5,
+            zIndex:3,
+            background:"rgba(0,0,0,0.88)",
+            color:"#fff", fontSize: micro?9:12,
+            padding: micro?"2px 5px":"3px 9px",
+            borderRadius: micro?4:6,
             fontFamily:"monospace", fontWeight:900,
-            letterSpacing:0.5, lineHeight:1.4,
-            border:"1px solid rgba(255,255,255,0.15)"
+            letterSpacing:1, lineHeight:1.4,
+            border:"1px solid rgba(255,255,255,0.25)",
+            textShadow:"0 1px 3px rgba(0,0,0,0.8)"
           }}>{game.number}</div>
         )}
 
