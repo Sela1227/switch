@@ -69,10 +69,20 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS game_covers (
+            id TEXT PRIMARY KEY,
+            base_game_id TEXT NOT NULL,
+            cover_url TEXT NOT NULL,
+            contributed_by TEXT NOT NULL DEFAULT 'default',
+            source TEXT DEFAULT 'upload',
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_game_covers_base ON game_covers(base_game_id)")
         for col, typedef in [
             ("number","INTEGER"),("fun_rating","INTEGER"),
             ("platforms","TEXT DEFAULT '[]'"),("released","TEXT"),
             ("owned_platform","TEXT"),("user_id","TEXT DEFAULT 'default'"),("cover","TEXT"),
+            ("base_game_id","TEXT"),
         ]:
             try: conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typedef}")
             except: pass
@@ -97,6 +107,7 @@ class GameIn(BaseModel):
     number: Optional[int] = None; fun_rating: Optional[int] = None
     platforms: List[str] = []; released: Optional[str] = None
     owned_platform: Optional[str] = None; user_id: str = "default"
+    base_game_id: Optional[str] = None
 
 class GameUpdate(BaseModel):
     number: Optional[int] = None; fun_rating: Optional[int] = None
@@ -159,7 +170,8 @@ def get_user_games(user_id: str):
              "genres":json.loads(r["genres"] or "[]"),"rating":r["rating"],
              "addedAt":r["added_at"],"number":r["number"],"funRating":r["fun_rating"],
              "platforms":json.loads(r["platforms"] or "[]"),"released":r["released"],
-             "ownedPlatform":r["owned_platform"],"userId":r["user_id"]} for r in rows]
+             "ownedPlatform":r["owned_platform"],"userId":r["user_id"],
+             "baseGameId":r["base_game_id"]} for r in rows]
 
 # ── Borrow Request endpoints ───────────────────────────────────────────────
 @app.get("/api/borrow-requests")
@@ -207,16 +219,18 @@ def list_games(user_id: str = "default"):
              "genres":json.loads(r["genres"] or "[]"),"rating":r["rating"],
              "addedAt":r["added_at"],"number":r["number"],"funRating":r["fun_rating"],
              "platforms":json.loads(r["platforms"] or "[]"),"released":r["released"],
-             "ownedPlatform":r["owned_platform"],"userId":r["user_id"]} for r in rows]
+             "ownedPlatform":r["owned_platform"],"userId":r["user_id"],
+             "baseGameId":r["base_game_id"]} for r in rows]
 
 @app.post("/api/games", dependencies=[Depends(verify_admin)])
 def add_game(g: GameIn):
     conn = get_db()
+    base_id = g.base_game_id or g.id  # 若無指定，base 就是自己的 id
     try:
-        conn.execute("INSERT INTO games VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO games VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (g.id, g.name, g.cover, json.dumps(g.genres), g.rating,
              datetime.now().isoformat(), g.number, g.fun_rating,
-             json.dumps(g.platforms), g.released, g.owned_platform, g.user_id))
+             json.dumps(g.platforms), g.released, g.owned_platform, g.user_id, base_id))
         conn.commit()
     except sqlite3.IntegrityError: pass
     conn.close(); return {"ok": True}
@@ -443,6 +457,38 @@ def import_from_catalog(body: dict):
          src["platforms"], src["released"], owned_platform, user_id))
     conn.commit(); conn.close()
     return {"ok": True, "new_id": new_id}
+
+@app.get("/api/game-covers/{base_game_id}")
+def get_game_covers(base_game_id: str):
+    conn = get_db()
+    rows = conn.execute("""SELECT gc.*, u.name as user_name
+        FROM game_covers gc LEFT JOIN users u ON gc.contributed_by = u.id
+        WHERE gc.base_game_id = ?
+        ORDER BY gc.created_at DESC""", (base_game_id,)).fetchall()
+    conn.close()
+    return [{"id":r["id"],"coverUrl":r["cover_url"],"contributedBy":r["contributed_by"],
+             "userName":r["user_name"] or "匿名","source":r["source"],
+             "createdAt":r["created_at"]} for r in rows]
+
+@app.post("/api/game-covers", dependencies=[Depends(verify_admin)])
+def contribute_cover(body: dict):
+    base_game_id    = body.get("base_game_id","")
+    cover_url       = body.get("cover_url","")
+    contributed_by  = body.get("contributed_by","default")
+    source          = body.get("source","upload")
+    if not base_game_id or not cover_url:
+        raise HTTPException(400, "base_game_id and cover_url required")
+    conn = get_db()
+    # 避免重複（同一用戶同一張）
+    dup = conn.execute("SELECT id FROM game_covers WHERE base_game_id=? AND contributed_by=? AND cover_url=?",
+        (base_game_id, contributed_by, cover_url)).fetchone()
+    if not dup:
+        cid = f"cov_{contributed_by}_{int(_time.time()*1000)}"
+        conn.execute("INSERT INTO game_covers VALUES (?,?,?,?,?,?)",
+            (cid, base_game_id, cover_url, contributed_by, source, datetime.now().isoformat()))
+        conn.commit()
+    conn.close()
+    return {"ok": True}
 
 @app.get("/api/search")
 async def search_games(q: str, platform: str = "7"):

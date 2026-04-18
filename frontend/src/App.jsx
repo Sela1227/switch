@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.1";
+const VERSION = "V1.12.3";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -356,12 +356,22 @@ export default function App() {
   }
 
   async function importFromCatalog(item, ownedPlatform) {
+    // 已有同款，詢問是否再加一份
+    if (item.iOwnIt) {
+      if (!window.confirm(`你已有《${item.name}》，還要再加一份嗎？\n（適合擁有多張同款遊戲的情況）`)) return;
+    }
     try {
-      const slugs = item.platforms || [];
-      // 檢查是否已在自己收藏裡
-      if (item.iOwnIt) { alert("你已經有這款遊戲了！"); return; }
-      await api("/api/catalog/import", { method:"POST", pin:adminPin(), body:{
-        game_id: item.id, user_id: myUserId(), owned_platform: ownedPlatform || null
+      // 用 timestamp 確保 id 唯一，允許多份
+      const newId = `${item.id}_${myUserId()}_${Date.now()}`;
+      await api("/api/games", { method:"POST", pin:adminPin(), body:{
+        id: newId,
+        name: item.name,
+        cover: item.cover,
+        genres: item.genres || [],
+        platforms: item.platforms || [],
+        released: item.released || null,
+        owned_platform: ownedPlatform || null,
+        user_id: myUserId()
       }});
       await loadAll();
     } catch { alert("導入失敗"); }
@@ -396,12 +406,33 @@ export default function App() {
     } catch { alert("歸還失敗"); }
   }
 
-  async function updateCover(gameId, coverUrl) {
+  const [communityCovers, setCommunityCovers] = useState([]);
+  const [coverTab, setCoverTab] = useState("search"); // "search" | "community"
+
+  async function updateCover(gameId, coverUrl, shareToComm = false) {
     try {
       await api(`/api/games/${gameId}`, { method:"PATCH", pin:adminPin(), body:{ cover: coverUrl } });
+      // 分享到社群封面庫
+      if (shareToComm && selGame) {
+        const baseId = selGame.baseGameId || selGame.id;
+        await api("/api/game-covers", { method:"POST", pin:adminPin(), body:{
+          base_game_id: baseId,
+          cover_url: coverUrl,
+          contributed_by: myUserId(),
+          source: "upload"
+        }});
+      }
       await loadAll();
-      setShowCoverPicker(false); setCoverSearchQ(""); setCoverResults([]);
+      setShowCoverPicker(false); setCoverSearchQ(""); setCoverResults([]); setCommunityCovers([]);
     } catch { alert("更新封面失敗"); }
+  }
+
+  async function loadCommunityCovers(game) {
+    const baseId = game.baseGameId || game.id;
+    try {
+      const res = await fetch(`/api/game-covers/${encodeURIComponent(baseId)}`);
+      setCommunityCovers(await res.json());
+    } catch { setCommunityCovers([]); }
   }
 
   async function doCoverSearch(q) {
@@ -437,7 +468,9 @@ export default function App() {
       };
       img.src = url;
     });
-    await updateCover(selGame.id, base64);
+    // 詢問是否分享到社群
+    const share = window.confirm("要將這張封面分享到社群庫嗎？\n其他人也可以使用你上傳的封面！");
+    await updateCover(selGame.id, base64, share);
   }
 
   async function deleteBorrow(id) {
@@ -828,14 +861,16 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{item.name}</div>
                           <div style={{ fontSize:10, color:"#4ade80" }}>
-                            已有 {item.ownerCount} 人收藏{item.iOwnIt ? "（含你）" : ""}
+                            已有 {item.ownerCount} 人收藏{item.iOwnIt ? " · 含你" : ""}
                           </div>
+                          <div style={{ fontSize:9, color:"#555", marginTop:1 }}>導入後可自行更換封面或編輯資訊</div>
                         </div>
-                        <button onClick={() => item.iOwnIt ? null : importFromCatalog(item, sel)}
-                          style={{ background: item.iOwnIt?"#1a2a1a":"#16a34a", border:"none", color: item.iOwnIt?"#4ade80":"#fff",
+                        <button onClick={() => importFromCatalog(item, sel)}
+                          style={{ background: item.iOwnIt?"#1a2a1a":"#16a34a", border: item.iOwnIt?"1px solid #2a4a2a":"none",
+                                   color: item.iOwnIt?"#4ade80":"#fff",
                                    borderRadius:8, padding:"7px 10px", fontSize:12, fontWeight:700,
-                                   cursor: item.iOwnIt?"default":"pointer", flexShrink:0 }}>
-                          {item.iOwnIt ? "✓ 已有" : "＋ 導入"}
+                                   cursor:"pointer", flexShrink:0 }}>
+                          {item.iOwnIt ? "再加一份" : "＋ 導入"}
                         </button>
                       </div>
                     );
@@ -955,7 +990,13 @@ export default function App() {
                   ? <img src={g.cover} style={{ height:100, objectFit:"contain", borderRadius:6, display:"block" }} alt="" />
                   : <div style={{ width:70, height:100, background:"#1a1a24", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#333" }}>🎮</div>
                 }
-                <button onClick={() => { setShowCoverPicker(true); setCoverSearchQ(g.name); setCoverResults([]); }}
+                <button onClick={() => {
+                    setShowCoverPicker(true);
+                    setCoverSearchQ(g.name);
+                    setCoverResults([]);
+                    setCoverTab("search");
+                    loadCommunityCovers(g);
+                  }}
                   style={{ position:"absolute", bottom:0, right:0, background:"rgba(0,0,0,0.8)", border:"1px solid #444", color:"#ddd", fontSize:10, padding:"2px 5px", borderRadius:4, cursor:"pointer", lineHeight:1.4 }}>
                   ✎ 換
                 </button>
@@ -1087,36 +1128,70 @@ export default function App() {
 
       {/* 換封面 Modal */}
       {showCoverPicker && selGame && (
-        <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); }}>
-          <div style={{ display:"flex", gap:6, marginBottom:10 }}>
-            <input style={{ ...S.input, padding:"8px 10px", fontSize:14, flex:1 }}
-              placeholder="輸入遊戲名稱搜尋封面"
-              value={coverSearchQ} onChange={e => setCoverSearchQ(e.target.value)}
-              onKeyDown={e => e.key==="Enter" && doCoverSearch(coverSearchQ)} />
-            <button style={{ ...S.searchBtn, fontSize:14 }}
-              onClick={() => doCoverSearch(coverSearchQ)} disabled={coverSearching}>
-              {coverSearching?"…":"搜"}
-            </button>
+        <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); setCommunityCovers([]); }}>
+          {/* Tab 選擇 */}
+          <div style={{ display:"flex", gap:0, marginBottom:12, background:"#1a1a24", borderRadius:8, padding:3 }}>
+            {[["search","🔍 搜尋"],["community",`👥 社群封面${communityCovers.length>0?` (${communityCovers.length})`:""}`]].map(([t,l]) => (
+              <button key={t} onClick={() => setCoverTab(t)}
+                style={{ flex:1, background:coverTab===t?"#e60012":"transparent", border:"none",
+                         color:coverTab===t?"#fff":"#666", padding:"6px", borderRadius:6,
+                         fontSize:12, cursor:"pointer", fontWeight:coverTab===t?700:400 }}>
+                {l}
+              </button>
+            ))}
           </div>
-          <button onClick={() => coverImgRef.current?.click()}
-            style={{ display:"block", width:"100%", background:"#1a1a24", border:"1px dashed #333", color:"#aaa", padding:"10px", borderRadius:10, fontSize:13, cursor:"pointer", marginBottom:12, touchAction:"manipulation" }}>
-            📁 從相簿上傳圖片
-          </button>
-          <input ref={coverImgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverImgUpload} />
-          {coverResults.length > 0 && (
-            <div>
-              <div style={S.fieldLabel}>點選封面套用</div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
-                {coverResults.filter(r=>r.background_image).slice(0,8).map(r => (
-                  <div key={r.id} style={{ cursor:"pointer" }} onClick={() => updateCover(selGame.id, r.background_image)}>
-                    <img src={r.background_image}
-                      style={{ width:"100%", aspectRatio:"2/3", objectFit:"cover", borderRadius:6, border:"2px solid #2a2a38", display:"block" }}
-                      alt={r.name} />
-                    <div style={{ fontSize:9, color:"#666", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
-                  </div>
-                ))}
-              </div>
+
+          {coverTab === "search" && (<>
+            <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+              <input style={{ ...S.input, padding:"8px 10px", fontSize:14, flex:1 }}
+                placeholder="輸入遊戲名稱搜尋封面"
+                value={coverSearchQ} onChange={e => setCoverSearchQ(e.target.value)}
+                onKeyDown={e => e.key==="Enter" && doCoverSearch(coverSearchQ)} />
+              <button style={{ ...S.searchBtn, fontSize:14 }}
+                onClick={() => doCoverSearch(coverSearchQ)} disabled={coverSearching}>
+                {coverSearching?"…":"搜"}
+              </button>
             </div>
+            <button onClick={() => coverImgRef.current?.click()}
+              style={{ display:"block", width:"100%", background:"#1a1a24", border:"1px dashed #333", color:"#aaa", padding:"10px", borderRadius:10, fontSize:13, cursor:"pointer", marginBottom:12 }}>
+              📁 從相簿上傳（可選擇是否分享到社群）
+            </button>
+            <input ref={coverImgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverImgUpload} />
+            {coverResults.length > 0 && (
+              <div>
+                <div style={S.fieldLabel}>點選封面套用</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
+                  {coverResults.filter(r=>r.background_image).slice(0,8).map(r => (
+                    <div key={r.id} style={{ cursor:"pointer" }} onClick={() => updateCover(selGame.id, r.background_image)}>
+                      <img src={r.background_image}
+                        style={{ width:"100%", aspectRatio:"2/3", objectFit:"cover", borderRadius:6, border:"2px solid #2a2a38", display:"block" }} alt={r.name} />
+                      <div style={{ fontSize:9, color:"#666", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>)}
+
+          {coverTab === "community" && (
+            communityCovers.length === 0
+              ? <div style={{ textAlign:"center", padding:"30px 0", color:"#444" }}>
+                  <div style={{ fontSize:32, marginBottom:8 }}>📷</div>
+                  <div style={{ fontSize:12 }}>還沒有人分享過這款遊戲的封面</div>
+                  <div style={{ fontSize:11, color:"#555", marginTop:4 }}>切換到「搜尋」頁，上傳後選擇分享即可！</div>
+                </div>
+              : <div>
+                  <div style={{ fontSize:11, color:"#666", marginBottom:10 }}>來自玩家社群的封面，點擊套用</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                    {communityCovers.map(c => (
+                      <div key={c.id} style={{ cursor:"pointer" }} onClick={() => updateCover(selGame.id, c.coverUrl)}>
+                        <img src={c.coverUrl}
+                          style={{ width:"100%", aspectRatio:"2/3", objectFit:"cover", borderRadius:7, border:"2px solid #2a2a38", display:"block" }} alt="" />
+                        <div style={{ fontSize:9, color:"#555", marginTop:2, textAlign:"center" }}>by {c.userName}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
           )}
         </Modal>
       )}
