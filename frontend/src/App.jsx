@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.9";
+const VERSION = "V1.11.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -115,7 +115,8 @@ const GENRE_ZH = {
 };
 const gZh = (name) => GENRE_ZH[name] || name;
 
-const GRID_COLS = { large: 6, medium: 9, small: 12 };
+const GRID_COLS_MOBILE  = { large: 2, medium: 4, small: 6 };
+const GRID_COLS_DESKTOP = { large: 6, medium: 9, small: 12 };
 
 // ── App ───────────────────────────────────────────────────────────────────
 export default function App() {
@@ -455,8 +456,10 @@ export default function App() {
     </div>
   );
 
+  const isMobile = window.innerWidth < 768;
+  const GRID_COLS = isMobile ? GRID_COLS_MOBILE : GRID_COLS_DESKTOP;
   const cols = GRID_COLS[gridSize] || 4;
-  const isCompact = cols >= 9;
+  const isCompact = cols >= 6;
 
   return (
     <div style={S.app}>
