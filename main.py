@@ -2,9 +2,10 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sqlite3, os, json, httpx, time as _time
+import sqlite3, os, json, httpx, time as _time, re
 from datetime import datetime
 from typing import Optional, List
+from bs4 import BeautifulSoup
 
 app = FastAPI(title="Switch Vault API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -78,6 +79,18 @@ def init_db():
             created_at TEXT NOT NULL
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_game_covers_base ON game_covers(base_game_id)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS game_name_map (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            zh_name TEXT NOT NULL,
+            en_name TEXT,
+            en_name_lower TEXT,
+            cover_url TEXT,
+            gamer_sn TEXT,
+            platform TEXT,
+            source TEXT DEFAULT 'gamer_tw',
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_namemap_en ON game_name_map(en_name_lower)")
         for col, typedef in [
             ("number","INTEGER"),("fun_rating","INTEGER"),
             ("platforms","TEXT DEFAULT '[]'"),("released","TEXT"),
@@ -282,6 +295,108 @@ def delete_borrow(borrow_id: str):
     conn = get_db()
     conn.execute("DELETE FROM borrows WHERE id=?",(borrow_id,))
     conn.commit(); conn.close(); return {"ok": True}
+
+# ── 巴哈商城 遊戲名稱與封面庫 ─────────────────────────────────────────────
+
+GAMER_CATEGORIES = [
+    {"c1": "27", "c2": "1", "platform": "switch"},  # NS2 / Switch
+    {"c1": "10", "c2": "1", "platform": "switch"},  # NS / Switch 舊款
+    {"c1": "30", "c2": "1", "platform": "ps"},      # PS5
+    {"c1": "29", "c2": "1", "platform": "ps"},      # PS4
+]
+GAMER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "Accept": "text/html,application/xhtml+xml",
+    "Accept-Language": "zh-TW,zh;q=0.9",
+    "Referer": "https://buy.gamer.com.tw/",
+}
+
+async def crawl_gamer_page(c1: str, c2: str, platform: str, pg: int = 1) -> list:
+    url = f"https://buy.gamer.com.tw/index_second_list.php?c1={c1}&c2={c2}&pg={pg}"
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        res = await client.get(url, headers=GAMER_HEADERS)
+    if res.status_code != 200:
+        return []
+    soup = BeautifulSoup(res.text, "html.parser")
+    items = []
+    for card in soup.select(".product-item, .item-card, li.item, .goods-item, div.item"):
+        name_el = card.select_one(".name, .title, h3, h4, .goods-name")
+        img_el  = card.select_one("img")
+        link_el = card.select_one("a[href*=\'atmItem\']")
+        if not name_el: continue
+        zh_name = name_el.get_text(strip=True)
+        zh_name = re.sub(r'[\u300a\u300b]', '', zh_name).strip()
+        cover_url = img_el.get("src") or img_el.get("data-src") if img_el else None
+        if cover_url and cover_url.startswith("//"):
+            cover_url = "https:" + cover_url
+        gamer_sn = None
+        if link_el:
+            m = re.search(r'sn=(\d+)', link_el.get("href",""))
+            if m: gamer_sn = m.group(1)
+        if zh_name and len(zh_name) > 2:
+            items.append({"zh_name": zh_name, "cover_url": cover_url,
+                          "gamer_sn": gamer_sn, "platform": platform})
+    return items
+
+@app.post("/api/admin/crawl-gamer", dependencies=[Depends(verify_admin)])
+async def crawl_gamer(body: dict = {}):
+    """爬巴哈商城遊戲清單，存入 game_name_map"""
+    max_pages = body.get("max_pages", 10)
+    total = 0
+    conn = get_db()
+    now = datetime.now().isoformat()
+    for cat in GAMER_CATEGORIES:
+        for pg in range(1, max_pages + 1):
+            try:
+                items = await crawl_gamer_page(cat["c1"], cat["c2"], cat["platform"], pg)
+                if not items: break
+                for item in items:
+                    conn.execute("""INSERT OR IGNORE INTO game_name_map
+                        (zh_name, cover_url, gamer_sn, platform, source, created_at)
+                        VALUES (?,?,?,?,?,?)""",
+                        (item["zh_name"], item["cover_url"],
+                         item["gamer_sn"], item["platform"], "gamer_tw", now))
+                    total += 1
+                conn.commit()
+            except Exception as e:
+                print(f"[crawl-gamer] {cat} pg{pg}: {e}")
+                break
+    conn.close()
+    return {"ok": True, "imported": total}
+
+@app.get("/api/gamer-name")
+async def gamer_name_lookup(q: str):
+    """查本地巴哈商城名稱對照表（模糊比對）"""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT zh_name, cover_url, gamer_sn FROM game_name_map LIMIT 3000"
+    ).fetchall()
+    conn.close()
+    q_parts = [p for p in q.lower().split() if len(p) > 2]
+    if not q_parts:
+        return {"zh_name": "", "cover_url": ""}
+    best = None
+    best_score = 0
+    for row in rows:
+        zh = row["zh_name"].lower()
+        score = sum(1 for p in q_parts if p in zh)
+        if score > best_score and score >= min(2, len(q_parts)):
+            best_score = score
+            best = row
+    if best:
+        return {"zh_name": best["zh_name"], "cover_url": best["cover_url"] or "",
+                "gamer_sn": best["gamer_sn"] or ""}
+    return {"zh_name": "", "cover_url": ""}
+
+@app.get("/api/gamer-stats")
+def gamer_stats():
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) FROM game_name_map").fetchone()[0]
+    by_plat = conn.execute(
+        "SELECT platform, COUNT(*) as cnt FROM game_name_map GROUP BY platform"
+    ).fetchall()
+    conn.close()
+    return {"total": total, "by_platform": {r["platform"]: r["cnt"] for r in by_plat}}
 
 # ── Config ────────────────────────────────────────────────────────────────
 @app.get("/api/nintendo-name")

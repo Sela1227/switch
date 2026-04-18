@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.6";
+const VERSION = "V1.12.7";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -305,9 +305,18 @@ export default function App() {
   }
 
   async function translateGameName(englishName) {
-    if (!englishName) return englishName;
+    if (!englishName) return { name: englishName, cover: null };
 
-    // Step 1：查任天堂台灣官方中文名（透過 Claude 知識庫）
+    // Step 1：查本地巴哈商城對照表（最快，不需 API）
+    try {
+      const res = await fetch(`/api/gamer-name?q=${encodeURIComponent(englishName)}`);
+      const data = await res.json();
+      if (data.zh_name && data.zh_name.length > 0) {
+        return { name: data.zh_name, cover: data.cover_url || null };
+      }
+    } catch {}
+
+    // Step 2：Claude 查任天堂台灣官方名（需要 API Key）
     const ck = claudeKey();
     if (ck) {
       try {
@@ -316,51 +325,51 @@ export default function App() {
         });
         const data = await res.json();
         if (data.name && data.name !== englishName) {
-          return data.name;
+          return { name: data.name, cover: null };
         }
+      } catch {}
+
+      // Step 3：Claude 通用翻譯
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": ck, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 60,
+            system: (
+              "你是遊戲名稱翻譯助理，熟悉台灣/香港玩家最常用的繁體中文遊戲名稱。\n" +
+              "規則：\n" +
+              "1. 輸入英文遊戲名，回傳台灣玩家最常見的繁體中文名稱\n" +
+              "2. 若有官方中文名稱，優先使用官方名稱\n" +
+              "3. 若沒有廣泛使用的中文名，直接回傳原始英文名\n" +
+              "4. 只回傳遊戲名稱，不加任何說明\n" +
+              "範例：\n" +
+              "- The Legend of Zelda Tears of the Kingdom → 薩爾達傳說 王國之淚\n" +
+              "- Super Mario Bros. Wonder → 超級瑪利歐兄弟 驚奇\n" +
+              "- Pikmin 4 → 皮克敏4\n" +
+              "- Hades II → Hades II\n" +
+              "- Pokemon Scarlet → 寶可夢 朱"
+            ),
+            messages: [{ role: "user", content: englishName }]
+          })
+        });
+        const data = await res.json();
+        const translated = data.content?.[0]?.text?.trim();
+        if (translated) return { name: translated, cover: null };
       } catch {}
     }
 
-    // Step 2：Claude 通用翻譯（任天堂找不到，或非任天堂遊戲）
-    if (!ck) return englishName;
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": ck, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 60,
-          system: (
-            "你是遊戲名稱翻譯助理，熟悉台灣/香港玩家最常用的繁體中文遊戲名稱。\n" +
-            "規則：\n" +
-            "1. 輸入英文遊戲名，回傳台灣玩家最常見的繁體中文名稱\n" +
-            "2. 若有官方中文名稱，優先使用官方名稱\n" +
-            "3. 若沒有廣泛使用的中文名，直接回傳原始英文名\n" +
-            "4. 只回傳遊戲名稱，不加任何說明\n" +
-            "範例：\n" +
-            "- The Legend of Zelda Tears of the Kingdom → 薩爾達傳說 王國之淚\n" +
-            "- Super Mario Bros. Wonder → 超級瑪利歐兄弟 驚奇\n" +
-            "- Pikmin 4 → 皮克敏4\n" +
-            "- Hades II → Hades II\n" +
-            "- Pokemon Scarlet → 寶可夢 朱"
-          ),
-          messages: [{ role: "user", content: englishName }]
-        })
-      });
-      const data = await res.json();
-      const translated = data.content?.[0]?.text?.trim();
-      return translated || englishName;
-    } catch {
-      return englishName;
-    }
+    return { name: englishName, cover: null };
   }
 
   async function addGame(r, ownedPlatform) {
     const platformSlugs = (r.platforms || []).map(p => p.platform.slug);
-    const finalName = await translateGameName(r.name);
+    const { name: finalName, cover: gamerCover } = await translateGameName(r.name);
+    const finalCover = r.background_image || gamerCover || null;
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
-        id: String(r.id), name: finalName, cover: r.background_image,
+        id: String(r.id), name: finalName, cover: finalCover,
         genres: r.genres?.map(x => x.name) || [], rating: r.rating,
         platforms: platformSlugs, released: r.released || null,
         owned_platform: ownedPlatform || null, user_id: myUserId(),
@@ -413,10 +422,11 @@ export default function App() {
       if (!window.confirm(`你已有《${item.name}》，還要再加一份嗎？\n（適合擁有多張同款遊戲的情況）`)) return;
     }
     try {
-      const finalName = await translateGameName(item.name);
+      const { name: finalName, cover: gamerCover } = await translateGameName(item.name);
+      const finalCover = item.cover || gamerCover || null;
       const newId = `${item.id}_${myUserId()}_${Date.now()}`;
       await api("/api/games", { method:"POST", pin:adminPin(), body:{
-        id: newId, name: finalName, cover: item.cover,
+        id: newId, name: finalName, cover: finalCover,
         genres: item.genres || [], platforms: item.platforms || [],
         released: item.released || null, owned_platform: ownedPlatform || null,
         user_id: myUserId(), base_game_id: item.id
@@ -1327,6 +1337,9 @@ export default function App() {
             } catch {}
             setModal(null);
           }}>儲存設定</button>
+
+          {/* 巴哈商城名稱庫 */}
+          <GamerCrawlSection adminPin={adminPin} />
         </Modal>
       )}
 
@@ -1364,6 +1377,57 @@ export default function App() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
+
+function GamerCrawlSection({ adminPin }) {
+  const [stats, setStats] = useState(null);
+  const [crawling, setCrawling] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/gamer-stats").then(r=>r.json()).then(setStats).catch(()=>{});
+  }, []);
+
+  async function doCrawl() {
+    setCrawling(true);
+    try {
+      const res = await fetch("/api/admin/crawl-gamer", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-admin-pin": adminPin() || ""},
+        body: JSON.stringify({ max_pages: 10 })
+      });
+      const data = await res.json();
+      alert(`爬蟲完成！共匯入 ${data.imported} 筆遊戲名稱`);
+      const s = await fetch("/api/gamer-stats").then(r=>r.json());
+      setStats(s);
+    } catch { alert("爬蟲失敗，請確認網路連線"); }
+    setCrawling(false);
+  }
+
+  return (
+    <div style={{ marginTop:14, background:"#0d1a0d", border:"1px solid #1a3a1a", borderRadius:10, padding:"10px 12px" }}>
+      <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginBottom:6 }}>
+        🏪 巴哈商城遊戲名稱庫
+      </div>
+      {stats && (
+        <div style={{ fontSize:11, color:"#555", marginBottom:8 }}>
+          已收錄：<span style={{ color:"#4ade80" }}>{stats.total}</span> 款
+          {stats.by_platform && Object.entries(stats.by_platform).map(([p,n]) => (
+            <span key={p} style={{ marginLeft:8 }}>{p}: {n}</span>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize:11, color:"#555", marginBottom:8, lineHeight:1.5 }}>
+        從巴哈商城爬取中文遊戲名稱，加入收藏時自動對應。<br/>
+        首次使用請點「執行爬蟲」，之後每月更新一次即可。
+      </div>
+      <button onClick={doCrawl} disabled={crawling}
+        style={{ background: crawling?"#1a2a1a":"#16a34a", border:"none", color:"#fff",
+                 padding:"8px 14px", borderRadius:8, fontSize:12, fontWeight:700,
+                 cursor: crawling?"not-allowed":"pointer", width:"100%" }}>
+        {crawling ? "🔄 爬蟲執行中（約1-2分鐘）..." : "🕷 執行巴哈商城爬蟲"}
+      </button>
+    </div>
+  );
+}
 
 function GameCard({ game, borrow, overdue, onClick, cols }) {
   const micro = cols >= 12;
