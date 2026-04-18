@@ -1,8 +1,55 @@
 import { useState, useEffect } from "react";
 
-const VERSION = "V1.2.0";
+const VERSION = "V1.3.0";
 
-// ── API helpers ───────────────────────────────────────────────────────────
+const PLATFORMS = [
+  { id: "all",    label: "全部",   rawg: "all" },
+  { id: "switch", label: "Switch", rawg: "7",     slugs: ["nintendo-switch"] },
+  { id: "ps",     label: "PS",     rawg: "18,187", slugs: ["playstation4","playstation5"] },
+  { id: "xbox",   label: "Xbox",   rawg: "1,186",  slugs: ["xbox-one","xbox-series-x"] },
+  { id: "pc",     label: "PC",     rawg: "4",      slugs: ["pc"] },
+];
+
+const SORT_OPTIONS = [
+  { id: "default",   label: "新增順序" },
+  { id: "number",    label: "編號 ↑" },
+  { id: "funRating", label: "好玩度 ↓" },
+  { id: "released",  label: "發行日期 ↓" },
+];
+
+function matchPlatform(game, platId) {
+  if (platId === "all") return true;
+  if (!game.platforms || game.platforms.length === 0) return true;
+  const p = PLATFORMS.find(x => x.id === platId);
+  if (!p) return true;
+  return game.platforms.some(slug => p.slugs.some(s => slug.startsWith(s) || slug === s));
+}
+
+function sortGames(games, sortBy) {
+  if (sortBy === "default") return games;
+  return [...games].sort((a, b) => {
+    if (sortBy === "number") {
+      if (a.number == null && b.number == null) return 0;
+      if (a.number == null) return 1;
+      if (b.number == null) return -1;
+      return a.number - b.number;
+    }
+    if (sortBy === "funRating") {
+      if (a.funRating == null && b.funRating == null) return 0;
+      if (a.funRating == null) return 1;
+      if (b.funRating == null) return -1;
+      return b.funRating - a.funRating;
+    }
+    if (sortBy === "released") {
+      if (!a.released && !b.released) return 0;
+      if (!a.released) return 1;
+      if (!b.released) return -1;
+      return b.released.localeCompare(a.released);
+    }
+    return 0;
+  });
+}
+
 async function api(path, { method = "GET", body, pin } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (pin) headers["x-admin-pin"] = pin;
@@ -11,13 +58,14 @@ async function api(path, { method = "GET", body, pin } = {}) {
   return res.json();
 }
 
-async function smartSearch(query, claudeKey) {
+async function smartSearch(query, claudeKey, platform) {
   const headers = { "Content-Type": "application/json" };
   if (claudeKey) headers["x-claude-key"] = claudeKey;
   const endpoint = claudeKey ? "/api/smart-search" : "/api/search";
-  const res = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`, { headers });
+  const platParam = platform && platform !== "all" ? `&platform=${platform}` : "&platform=all";
+  const res = await fetch(`${endpoint}?q=${encodeURIComponent(query)}${platParam}`, { headers });
   if (!res.ok) throw new Error("search failed");
-  return res.json(); // { results, selected }
+  return res.json();
 }
 
 const today = () => new Date().toISOString().split("T")[0];
@@ -25,12 +73,11 @@ function isOverdue(b) { return !b.returnedAt && new Date(b.expectedReturn) < new
 function daysDiff(d) { return Math.floor((new Date() - new Date(d)) / 86400000); }
 const GRID_COLS = { large: 2, medium: 3, small: 4 };
 
-// ── App ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab]         = useState("collection");
   const [games, setGames]     = useState([]);
   const [borrows, setBorrows] = useState([]);
-  const [isAdmin]             = useState(true); // [AUTH-DISABLED]
+  const [isAdmin]             = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
 
@@ -43,22 +90,21 @@ export default function App() {
   const [results, setResults]     = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState("");
+  const [searchPlatform, setSearchPlatform] = useState("7");
 
   const [borrowForm, setBorrowForm] = useState({ name: "", borrowDate: today(), expectedReturn: "" });
   const [collFilter, setCollFilter] = useState("all");
-  const [gridSize, setGridSize]     = useState(() => localStorage.getItem("svGrid") || "small");
+  const [wallPlatform, setWallPlatform] = useState(() => localStorage.getItem("svWallPlat") || "all");
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem("svSort") || "default");
+  const [gridSize, setGridSize] = useState(() => localStorage.getItem("svGrid") || "small");
 
-  // 設定
-  const [settingsForm, setSettingsForm] = useState({ claudeKey: "", adminPin: "" });
-
-  // 遊戲編輯
+  const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
   const [editForm, setEditForm] = useState({ number: "", funRating: "" });
   const [saving, setSaving]     = useState(false);
 
   const claudeKey = () => localStorage.getItem("svClaudeKey") || "";
   const adminPin  = () => sessionStorage.getItem("svPin") || "";
 
-  // ── Load ──────────────────────────────────────────────────────────────
   async function loadAll() {
     setLoading(true); setError("");
     try {
@@ -69,23 +115,27 @@ export default function App() {
   }
   useEffect(() => { loadAll(); }, []);
 
-  // ── Computed ──────────────────────────────────────────────────────────
   const activeBorrows   = borrows.filter(b => !b.returnedAt);
   const overdueBorrows  = activeBorrows.filter(isOverdue);
   const getGame         = id => games.find(g => g.id === id);
   const getActiveBorrow = gid => activeBorrows.find(b => b.gameId === gid);
-  const filteredGames   = games.filter(g => {
-    if (collFilter === "available") return !getActiveBorrow(g.id);
-    if (collFilter === "borrowed")  return !!getActiveBorrow(g.id);
-    return true;
-  });
 
-  // ── Search ────────────────────────────────────────────────────────────
+  const filteredGames = sortGames(
+    games.filter(g => {
+      if (collFilter === "available" && getActiveBorrow(g.id)) return false;
+      if (collFilter === "borrowed" && !getActiveBorrow(g.id)) return false;
+      if (!matchPlatform(g, wallPlatform)) return false;
+      return true;
+    }),
+    sortBy
+  );
+
   async function doSearch() {
     if (!query.trim()) return;
     setSearching(true); setResults([]); setSearchErr(""); setTranslatedQ("");
+    const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
     try {
-      const data = await smartSearch(query, claudeKey());
+      const data = await smartSearch(query, claudeKey(), plat);
       setResults(data.results || []);
       if (data.selected && data.selected !== query) setTranslatedQ(data.selected);
     } catch { setSearchErr("搜尋失敗，請確認網路連線"); }
@@ -93,15 +143,18 @@ export default function App() {
   }
 
   async function addGame(r) {
+    const platformSlugs = r.platforms?.map(p => p.platform.slug) || [];
     try {
       await api("/api/games", { method: "POST", pin: adminPin(), body: {
         id: String(r.id), name: r.name, cover: r.background_image,
-        genres: r.genres?.map(x => x.name) || [], rating: r.rating
+        genres: r.genres?.map(x => x.name) || [], rating: r.rating,
+        platforms: platformSlugs, released: r.released || null
       }});
       await loadAll();
     } catch { alert("新增失敗"); }
     closeAddGame();
   }
+
   function closeAddGame() { setModal(null); setQuery(""); setResults([]); setSearchErr(""); setTranslatedQ(""); }
 
   async function submitBorrow() {
@@ -141,26 +194,14 @@ export default function App() {
       if (editForm.funRating !== "") body.fun_rating = parseInt(editForm.funRating) || null;
       await api(`/api/games/${id}`, { method: "PATCH", pin: adminPin(), body });
       await loadAll();
-      setSelGame(g => ({ ...g, ...body, funRating: body.fun_rating }));
     } catch { alert("儲存失敗"); }
     setSaving(false);
   }
 
-  function openSettings() {
-    setSettingsForm({ claudeKey: claudeKey(), adminPin: "" });
-    setModal("settings");
-  }
-  function saveSettings() {
-    localStorage.setItem("svClaudeKey", settingsForm.claudeKey);
-    if (settingsForm.adminPin) sessionStorage.setItem("svPin", settingsForm.adminPin);
-    setModal(null);
-  }
+  function setGrid(s) { setGridSize(s); localStorage.setItem("svGrid", s); }
+  function setWallPlat(p) { setWallPlatform(p); localStorage.setItem("svWallPlat", p); }
+  function setSort(s) { setSortBy(s); localStorage.setItem("svSort", s); }
 
-  function setGrid(size) {
-    setGridSize(size); localStorage.setItem("svGrid", size);
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ background: "#0c0c0f", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ textAlign: "center", color: "#888" }}>
@@ -184,7 +225,6 @@ export default function App() {
 
   return (
     <div style={S.app}>
-      {/* Header */}
       <header style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 20 }}>🎮</span>
@@ -192,26 +232,23 @@ export default function App() {
           <span style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{VERSION}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button style={S.iconBtn} onClick={loadAll} title="重新整理">↻</button>
-          <button style={S.iconBtn} onClick={openSettings}>⚙</button>
+          <button style={S.iconBtn} onClick={loadAll}>↻</button>
+          <button style={S.iconBtn} onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
         </div>
       </header>
 
-      {/* Main */}
       <main style={S.main}>
         {tab === "collection" && (
           <div>
+            {/* Row 1：收藏篩選 + 格大小 + 新增 */}
             <div style={{ padding: "10px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", gap: 5 }}>
-                {["all","available","borrowed"].map(f => (
-                  <button key={f} style={f === collFilter ? S.filterActive : S.filterBtn} onClick={() => setCollFilter(f)}>
-                    {f === "all" ? "全部" : f === "available" ? "可借" : "借出中"}
-                  </button>
+                {[["all","全部"],["available","可借"],["borrowed","借出中"]].map(([f,l]) => (
+                  <button key={f} style={f===collFilter ? S.filterActive : S.filterBtn} onClick={() => setCollFilter(f)}>{l}</button>
                 ))}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {/* 格大小切換 */}
-                <div style={{ display: "flex", background: "#1a1a24", borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a38" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ display: "flex", background: "#1a1a24", borderRadius: 7, overflow: "hidden", border: "1px solid #2a2a38" }}>
                   {[["large","大"],["medium","中"],["small","小"]].map(([s,l]) => (
                     <button key={s} onClick={() => setGrid(s)}
                       style={{ background: gridSize===s?"#e60012":"transparent", border:"none", color: gridSize===s?"#fff":"#666", padding:"3px 8px", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
@@ -222,7 +259,22 @@ export default function App() {
                 {isAdmin && <button style={S.addBtn} onClick={() => setModal("addGame")}>＋</button>}
               </div>
             </div>
+
+            {/* Row 2：平台篩選 + 排序 */}
+            <div style={{ padding: "6px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", gap: 4, overflowX: "auto", flexShrink: 1 }}>
+                {PLATFORMS.map(p => (
+                  <button key={p.id} style={wallPlatform===p.id ? S.filterActive : S.filterBtn}
+                    onClick={() => setWallPlat(p.id)}>{p.label}</button>
+                ))}
+              </div>
+              <select style={S.sortSelect} value={sortBy} onChange={e => setSort(e.target.value)}>
+                {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+
             <div style={{ padding: "4px 16px 8px", fontSize: 11, color: "#555" }}>共 {filteredGames.length} 款</div>
+
             {filteredGames.length === 0
               ? <Empty icon="🎮" text="點擊「＋」加入第一款遊戲" />
               : <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: cols >= 4 ? 8 : 10, padding: "0 16px 16px" }}>
@@ -252,7 +304,7 @@ export default function App() {
             {overdueBorrows.length > 0 && <div style={S.overdueAlert}>⚠️ {overdueBorrows.length} 款遊戲已超過歸還期限</div>}
             <div style={S.sectionTitle}>逾期未還 — {overdueBorrows.length} 筆</div>
             {overdueBorrows.length === 0
-              ? <Empty icon="✅" text="沒有逾期！紀錄保持良好 👍" />
+              ? <Empty icon="✅" text="沒有逾期！" />
               : overdueBorrows.map(b => <BorrowRow key={b.id} borrow={b} game={getGame(b.gameId)} isAdmin={isAdmin} overdue
                   onReturn={() => { setSelBorrow(b); setModal("return"); }} />)
             }
@@ -260,7 +312,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Bottom Nav */}
       <nav style={S.nav}>
         <NavItem label="收藏" emoji="🎮" active={tab==="collection"} onClick={() => setTab("collection")} />
         <NavItem label={`借出${activeBorrows.length ? ` (${activeBorrows.length})` : ""}`} emoji="📤" active={tab==="borrowed"} onClick={() => setTab("borrowed")} />
@@ -269,47 +320,73 @@ export default function App() {
 
       {/* ── MODALS ── */}
 
-      {/* Add Game */}
       {modal === "addGame" && (
         <Modal title="新增遊戲" onClose={closeAddGame}>
+          {/* 平台選擇 */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: "#666", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>搜尋平台</div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {PLATFORMS.map(p => (
+                <button key={p.id} style={searchPlatform===p.rawg ? S.filterActive : S.filterBtn}
+                  onClick={() => setSearchPlatform(p.rawg)}>{p.label}</button>
+              ))}
+            </div>
+          </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input style={S.input} placeholder="遊戲名稱（中文或英文）" value={query}
               onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && doSearch()} />
             <button style={S.searchBtn} onClick={doSearch} disabled={searching}>
-              {searching ? "搜尋中…" : "搜尋"}
+              {searching ? "…" : "搜尋"}
             </button>
           </div>
-          {claudeKey() && <div style={{ fontSize: 11, color: "#4ade80", marginBottom: 6 }}>✓ Claude AI 輔助翻譯已啟用</div>}
-          {translatedQ && <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>🔍 搜尋：<span style={{ color: "#e2e2e8" }}>{translatedQ}</span></div>}
+          {claudeKey() && <div style={{ fontSize: 11, color: "#4ade80", marginBottom: 5 }}>✓ Claude AI 輔助已啟用</div>}
+          {translatedQ && <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>🔍 比對：<span style={{ color: "#e2e2e8" }}>{translatedQ}</span></div>}
           {searchErr && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 8 }}>{searchErr}</div>}
-          <div style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-            {results.map(r => (
-              <div key={r.id} style={S.resultRow} onClick={() => addGame(r)}>
-                {r.background_image
-                  ? <img src={r.background_image} style={{ width: 70, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} alt="" />
-                  : <div style={{ width: 70, height: 44, background: "#222", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>🎮</div>
-                }
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#ddd" }}>{r.name}</div>
-                  <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{r.genres?.map(g => g.name).join(" · ")}</div>
+          <div style={{ maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 7 }}>
+            {results.map(r => {
+              const slugs = r.platforms?.map(p => p.platform.slug) || [];
+              const platLabels = PLATFORMS.filter(p => p.id !== "all" && slugs.some(s => p.slugs?.some(ps => s.startsWith(ps) || s === ps))).map(p => p.label);
+              return (
+                <div key={r.id} style={S.resultRow} onClick={() => addGame(r)}>
+                  {r.background_image
+                    ? <img src={r.background_image} style={{ width: 70, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} alt="" />
+                    : <div style={{ width: 70, height: 44, background: "#222", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>🎮</div>
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#ddd" }}>{r.name}</div>
+                    <div style={{ fontSize: 10, color: "#666", marginTop: 1 }}>{r.genres?.map(g => g.name).join(" · ")}</div>
+                    {platLabels.length > 0 && (
+                      <div style={{ display: "flex", gap: 3, marginTop: 2 }}>
+                        {platLabels.map(l => <span key={l} style={{ fontSize: 9, background: "#2a2a38", color: "#888", padding: "1px 4px", borderRadius: 3 }}>{l}</span>)}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ color: "#e60012", fontWeight: 900, fontSize: 18, flexShrink: 0 }}>＋</span>
                 </div>
-                <span style={{ color: "#e60012", fontWeight: 900, fontSize: 18, flexShrink: 0 }}>＋</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ marginTop: 10, fontSize: 11, color: "#444", textAlign: "center" }}>封面資料：RAWG.io</div>
         </Modal>
       )}
 
-      {/* Game Detail */}
       {modal === "gameDetail" && selGame && (() => {
         const ab  = getActiveBorrow(selGame.id);
         const od  = ab && isOverdue(ab);
         const hist = borrows.filter(b => b.gameId === selGame.id);
         const currentGame = games.find(g => g.id === selGame.id) || selGame;
+        const platLabels = PLATFORMS.filter(p => p.id !== "all" && (currentGame.platforms||[]).some(s => p.slugs?.some(ps => s.startsWith(ps) || s === ps))).map(p => p.label);
         return (
           <Modal title={currentGame.name} onClose={() => setModal(null)}>
             {currentGame.cover && <img src={currentGame.cover} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 10, marginBottom: 10 }} alt="" />}
+
+            {/* 平台 + 發行日期 */}
+            {(platLabels.length > 0 || currentGame.released) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {platLabels.map(l => <span key={l} style={{ fontSize: 10, background: "#1e1e2e", color: "#888", padding: "2px 7px", borderRadius: 6 }}>{l}</span>)}
+                {currentGame.released && <span style={{ fontSize: 10, color: "#555", marginLeft: "auto" }}>{currentGame.released}</span>}
+              </div>
+            )}
 
             {/* 編號 & 好玩度 */}
             <div style={{ display: "flex", gap: 8, marginBottom: 12, background: "#1a1a24", borderRadius: 10, padding: "10px 12px" }}>
@@ -326,7 +403,7 @@ export default function App() {
                   onChange={e => setEditForm(f => ({ ...f, funRating: e.target.value }))} />
               </div>
               <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button style={{ background: saving?"#333":"#3b3b50", border: "none", color: "#e2e2e8", padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}
+                <button style={{ background: saving?"#333":"#3b3b50", border:"none", color:"#e2e2e8", padding:"6px 12px", borderRadius:8, fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}
                   disabled={saving} onClick={() => saveGameEdit(currentGame.id)}>
                   {saving ? "…" : "儲存"}
                 </button>
@@ -341,7 +418,7 @@ export default function App() {
 
             {ab ? (
               <div style={od ? S.overdueBox : S.borrowedBox}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: od ? "#f87171" : "#fbbf24" }}>{od ? "⚠️ 逾期未還" : "📤 借出中"}</div>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: od?"#f87171":"#fbbf24" }}>{od?"⚠️ 逾期未還":"📤 借出中"}</div>
                 <Row label="借用人" val={ab.borrowerName} />
                 <Row label="借出日期" val={ab.borrowDate} />
                 <Row label="預計歸還" val={ab.expectedReturn} highlight={od} />
@@ -358,7 +435,7 @@ export default function App() {
                 {hist.map(h => (
                   <div key={h.id} style={{ display: "flex", justifyContent: "space-between", background: "#1a1a24", borderRadius: 8, padding: "6px 10px", marginBottom: 3 }}>
                     <span style={{ color: "#ccc", fontSize: 13 }}>{h.borrowerName}</span>
-                    <span style={{ fontSize: 11, color: h.returnedAt ? "#4ade80" : "#fbbf24" }}>{h.returnedAt ? `已還 ${h.returnedAt.split("T")[0]}` : "借出中"}</span>
+                    <span style={{ fontSize: 11, color: h.returnedAt?"#4ade80":"#fbbf24" }}>{h.returnedAt ? `已還 ${h.returnedAt.split("T")[0]}` : "借出中"}</span>
                   </div>
                 ))}
               </div>
@@ -368,7 +445,6 @@ export default function App() {
         );
       })()}
 
-      {/* Borrow */}
       {modal === "borrow" && selGame && (
         <Modal title="登記借出" onClose={() => setModal("gameDetail")}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a1a24", borderRadius: 8, padding: 8, marginBottom: 12 }}>
@@ -383,7 +459,6 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Return */}
       {modal === "return" && selBorrow && (
         <Modal title="確認歸還" onClose={() => setModal(null)}>
           <div style={{ background: "#1a1a24", borderRadius: 12, padding: 14, marginBottom: 12 }}>
@@ -397,7 +472,6 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Settings */}
       {modal === "settings" && (
         <Modal title="設定" onClose={() => setModal(null)}>
           <Field label="Claude API Key（存本機，不上傳伺服器）">
@@ -406,40 +480,40 @@ export default function App() {
               onChange={e => setSettingsForm(f => ({ ...f, claudeKey: e.target.value }))} />
           </Field>
           <div style={{ background: "#1a1a24", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#555", marginBottom: 14 }}>
-            💡 設定後，搜尋中文遊戲名稱時會自動翻譯成英文再查詢 RAWG
+            💡 設定後，搜尋時會用 Claude AI 從 RAWG 候選結果中選出最符合的遊戲
           </div>
-          <button style={{ ...S.redBtn }} onClick={saveSettings}>儲存設定</button>
+          <button style={S.redBtn} onClick={() => { localStorage.setItem("svClaudeKey", settingsForm.claudeKey); setModal(null); }}>儲存設定</button>
         </Modal>
       )}
     </div>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
 function GameCard({ game, borrow, overdue, onClick, cols }) {
   const small = cols >= 4;
+  const platLabels = PLATFORMS.filter(p => p.id !== "all" && (game.platforms||[]).some(s => p.slugs?.some(ps => s.startsWith(ps) || s === ps))).map(p => p.label);
   return (
     <div style={{ cursor: "pointer" }} onClick={onClick}>
-      <div style={{ position: "relative", width: "100%", paddingBottom: "62.5%", background: "#1a1a24", borderRadius: small ? 6 : 8, overflow: "hidden" }}>
+      <div style={{ position: "relative", width: "100%", paddingBottom: "62.5%", background: "#1a1a24", borderRadius: small?6:8, overflow: "hidden" }}>
         {game.cover
           ? <img src={game.cover} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} alt={game.name} />
-          : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: small ? 18 : 26, color: "#333" }}>🎮</div>
+          : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: small?18:26, color: "#333" }}>🎮</div>
         }
-        {/* 編號 badge */}
         {game.number != null && (
-          <div style={{ position: "absolute", top: 3, left: 3, background: "rgba(0,0,0,0.7)", color: "#aaa", fontSize: 8, padding: "1px 4px", borderRadius: 3, fontFamily: "monospace" }}>
-            #{game.number}
-          </div>
+          <div style={{ position: "absolute", top: 3, left: 3, background: "rgba(0,0,0,0.7)", color: "#aaa", fontSize: 8, padding: "1px 4px", borderRadius: 3, fontFamily: "monospace" }}>#{game.number}</div>
         )}
-        {/* 好玩度 badge */}
         {game.funRating != null && (
-          <div style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(0,0,0,0.7)", color: "#fbbf24", fontSize: 8, padding: "1px 4px", borderRadius: 3 }}>
-            ★{game.funRating}
+          <div style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(0,0,0,0.7)", color: "#fbbf24", fontSize: 8, padding: "1px 4px", borderRadius: 3 }}>★{game.funRating}</div>
+        )}
+        {/* 平台 badge（中/大格才顯示）*/}
+        {!small && platLabels.length > 0 && (
+          <div style={{ position: "absolute", bottom: 3, right: 3, display: "flex", gap: 2 }}>
+            {platLabels.slice(0,2).map(l => <span key={l} style={{ fontSize: 8, background: "rgba(0,0,0,0.75)", color: "#ccc", padding: "1px 4px", borderRadius: 3 }}>{l}</span>)}
           </div>
         )}
         {borrow && (
-          <div style={{ position: "absolute", top: 3, right: 3, background: overdue ? "#e60012" : "#d97706", color: "#fff", fontSize: 8, padding: "1px 4px", borderRadius: 3, fontWeight: 700 }}>
-            {overdue ? "逾期" : "借出"}
+          <div style={{ position: "absolute", top: 3, right: 3, background: overdue?"#e60012":"#d97706", color: "#fff", fontSize: 8, padding: "1px 4px", borderRadius: 3, fontWeight: 700 }}>
+            {overdue?"逾期":"借出"}
           </div>
         )}
       </div>
@@ -523,9 +597,10 @@ const S = {
   header: { background:"#111116", borderBottom:"1px solid #1e1e28", padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
   iconBtn: { background:"transparent", border:"none", color:"#666", fontSize:18, cursor:"pointer", padding:"0 3px" },
   main: { flex:1, overflowY:"auto" },
-  filterBtn: { background:"#1a1a24", border:"1px solid #222", color:"#666", padding:"3px 10px", borderRadius:14, fontSize:11, cursor:"pointer" },
-  filterActive: { background:"#e60012", border:"1px solid #e60012", color:"#fff", padding:"3px 10px", borderRadius:14, fontSize:11, cursor:"pointer", fontWeight:700 },
+  filterBtn: { background:"#1a1a24", border:"1px solid #222", color:"#666", padding:"3px 10px", borderRadius:14, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" },
+  filterActive: { background:"#e60012", border:"1px solid #e60012", color:"#fff", padding:"3px 10px", borderRadius:14, fontSize:11, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap" },
   addBtn: { background:"#e60012", border:"none", color:"#fff", padding:"4px 12px", borderRadius:14, fontSize:14, cursor:"pointer", fontWeight:900 },
+  sortSelect: { background:"#1a1a24", border:"1px solid #2a2a38", color:"#888", borderRadius:8, padding:"3px 6px", fontSize:11, cursor:"pointer", outline:"none", flexShrink:0 },
   sectionTitle: { fontSize:11, color:"#666", marginBottom:10, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 },
   nav: { background:"#111116", borderTop:"1px solid #1e1e28", display:"flex", flexShrink:0 },
   input: { width:"100%", background:"#1a1a24", border:"1px solid #2a2a38", borderRadius:9, padding:"9px 11px", color:"#e2e2e8", fontSize:13, boxSizing:"border-box", outline:"none" },

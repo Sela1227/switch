@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Optional, List
 
 app = FastAPI(title="Switch Vault API")
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 ADMIN_PIN = os.getenv("ADMIN_PIN", "1234")
@@ -24,13 +23,17 @@ def init_db():
     conn.execute("""CREATE TABLE IF NOT EXISTS games (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, cover TEXT,
         genres TEXT DEFAULT '[]', rating REAL, added_at TEXT,
-        number INTEGER, fun_rating INTEGER
+        number INTEGER, fun_rating INTEGER,
+        platforms TEXT DEFAULT '[]', released TEXT
     )""")
     conn.execute("""CREATE TABLE IF NOT EXISTS borrows (
         id TEXT PRIMARY KEY, game_id TEXT NOT NULL, borrower_name TEXT NOT NULL,
         borrow_date TEXT NOT NULL, expected_return TEXT NOT NULL, returned_at TEXT
     )""")
-    for col, typedef in [("number", "INTEGER"), ("fun_rating", "INTEGER")]:
+    for col, typedef in [
+        ("number", "INTEGER"), ("fun_rating", "INTEGER"),
+        ("platforms", "TEXT DEFAULT '[]'"), ("released", "TEXT")
+    ]:
         try:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typedef}")
         except Exception:
@@ -54,6 +57,8 @@ class GameIn(BaseModel):
     rating: Optional[float] = None
     number: Optional[int] = None
     fun_rating: Optional[int] = None
+    platforms: List[str] = []
+    released: Optional[str] = None
 
 class GameUpdate(BaseModel):
     number: Optional[int] = None
@@ -72,16 +77,20 @@ def list_games():
     rows = conn.execute("SELECT * FROM games ORDER BY added_at DESC").fetchall()
     conn.close()
     return [{"id": r["id"], "name": r["name"], "cover": r["cover"],
-             "genres": json.loads(r["genres"] or "[]"), "rating": r["rating"],
-             "addedAt": r["added_at"], "number": r["number"], "funRating": r["fun_rating"]} for r in rows]
+             "genres": json.loads(r["genres"] or "[]"),
+             "rating": r["rating"], "addedAt": r["added_at"],
+             "number": r["number"], "funRating": r["fun_rating"],
+             "platforms": json.loads(r["platforms"] or "[]"),
+             "released": r["released"]} for r in rows]
 
 @app.post("/api/games", dependencies=[Depends(verify_admin)])
 def add_game(g: GameIn):
     conn = get_db()
     try:
-        conn.execute("INSERT INTO games VALUES (?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO games VALUES (?,?,?,?,?,?,?,?,?,?)",
             (g.id, g.name, g.cover, json.dumps(g.genres), g.rating,
-             datetime.now().isoformat(), g.number, g.fun_rating))
+             datetime.now().isoformat(), g.number, g.fun_rating,
+             json.dumps(g.platforms), g.released))
         conn.commit()
     except sqlite3.IntegrityError:
         pass
@@ -138,37 +147,34 @@ def return_borrow(borrow_id: str):
 def get_config():
     return {"ok": True}
 
-# ── 一般搜尋（無 Claude Key 時使用）────────────────────────────────────────
 @app.get("/api/search")
-async def search_games(q: str):
+async def search_games(q: str, platform: str = "7"):
     api_key = os.getenv("RAWG_API_KEY", "")
     key_param = f"&key={api_key}" if api_key else ""
-    url = f"https://api.rawg.io/api/games?search={q}&platforms=7&page_size=12{key_param}"
+    plat_param = f"&platforms={platform}" if platform and platform != "all" else ""
+    url = f"https://api.rawg.io/api/games?search={q}&page_size=12{plat_param}{key_param}"
     async with httpx.AsyncClient() as client:
         res = await client.get(url, timeout=10)
     data = res.json()
     return {"results": data.get("results", []), "selected": q}
 
-# ── 兩段式智慧搜尋（有 Claude Key 時使用）────────────────────────────────
 @app.get("/api/smart-search")
-async def smart_search(q: str, request: Request):
+async def smart_search(q: str, platform: str = "7", request: Request = None):
     claude_key = request.headers.get("x-claude-key", "")
     api_key    = os.getenv("RAWG_API_KEY", "")
     key_param  = f"&key={api_key}" if api_key else ""
+    plat_param = f"&platforms={platform}" if platform and platform != "all" else ""
 
     async with httpx.AsyncClient() as client:
-        # Step 1：先不加平台篩選，取前 8 筆候選
         r1 = await client.get(
             f"https://api.rawg.io/api/games?search={q}&page_size=8{key_param}",
             timeout=10
         )
     candidates = r1.json().get("results", [])
-
     if not candidates:
         return {"results": [], "selected": q}
 
-    # Step 2：若有 Claude Key，讓 Claude 從候選中選出最符合的
-    selected = candidates[0]["name"]  # 預設第一筆
+    selected = candidates[0]["name"]
     if claude_key:
         names_list = "\n".join(f"- {r['name']}" for r in candidates)
         try:
@@ -188,29 +194,23 @@ async def smart_search(q: str, request: Request):
                             "根據使用者的搜尋意圖，從 RAWG 的候選遊戲清單中，選出最符合的一個。"
                             "只回傳清單中的完整遊戲名稱，不加任何說明或標點。"
                         ),
-                        "messages": [{
-                            "role": "user",
-                            "content": f"使用者搜尋：{q}\n\nRAWG 候選清單：\n{names_list}\n\n請選出最符合的遊戲名稱："
-                        }]
+                        "messages": [{"role": "user",
+                            "content": f"使用者搜尋：{q}\n\nRAWG 候選清單：\n{names_list}\n\n請選出最符合的遊戲名稱："}]
                     },
                     timeout=10
                 )
             picked = cr.json().get("content", [{}])[0].get("text", "").strip()
-            # 確認 Claude 回傳的名稱確實在候選清單中
             if any(picked == r["name"] for r in candidates):
                 selected = picked
         except Exception:
             pass
 
-    # Step 3：用選出的名稱加 Switch 平台篩選再搜一次
     async with httpx.AsyncClient() as client:
         r2 = await client.get(
-            f"https://api.rawg.io/api/games?search={selected}&platforms=7&page_size=12{key_param}",
+            f"https://api.rawg.io/api/games?search={selected}&page_size=12{plat_param}{key_param}",
             timeout=10
         )
     results = r2.json().get("results", [])
-
-    # 若加平台篩選後沒結果，退回不篩選的候選清單
     if not results:
         results = candidates
 
