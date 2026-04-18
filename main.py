@@ -491,7 +491,7 @@ async def gamer_search(q: str):
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
 
             # 策略 1：acg.gamer.com.tw 直接搜遊戲資料庫
-            acg_url = f"https://acg.gamer.com.tw/search.php?kw={quote(q)}&page=1"
+            acg_url = f"https://acg.gamer.com.tw/search.php?keyword={quote(q)}&page=1"
             res = await client.get(acg_url, headers=GAMER_HEADERS)
             soup = BeautifulSoup(res.text, "html.parser")
             acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
@@ -579,7 +579,7 @@ async def gamer_debug(q: str = "pokopia", c1: str = "27", c2: str = "1", pg: str
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
         # 試搜尋頁
         for label, url in [
-            ("acg_search", f"https://acg.gamer.com.tw/search.php?kw={quote(q)}&page=1"),
+            ("acg_search", f"https://acg.gamer.com.tw/search.php?keyword={quote(q)}&page=1"),
             ("buy_search", f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"),
         ]:
             try:
