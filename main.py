@@ -284,6 +284,39 @@ def delete_borrow(borrow_id: str):
     conn.commit(); conn.close(); return {"ok": True}
 
 # ── Config ────────────────────────────────────────────────────────────────
+@app.get("/api/nintendo-name")
+async def nintendo_name(q: str):
+    """查任天堂台灣官網的官方中文遊戲名稱"""
+    try:
+        url = (
+            "https://searching.nintendo-europe.com/zh-Hant/select"
+            f"?q={q}&rows=3&start=0&type=GAME&nso=0&sort=score+desc"
+        )
+        async with httpx.AsyncClient(timeout=8) as client:
+            res = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        if res.status_code != 200:
+            return {"name": ""}
+        data = res.json()
+        items = data.get("response", {}).get("docs", [])
+        if not items:
+            return {"name": ""}
+        # 找最接近的結果（比對英文名）
+        q_lower = q.lower()
+        best = None
+        for item in items:
+            title_en = (item.get("title") or "").lower()
+            if q_lower in title_en or title_en in q_lower:
+                best = item
+                break
+        if not best:
+            best = items[0]
+        # 優先取繁中名稱
+        zh_name = (best.get("title_extras_txt") or [None])[0] or best.get("title") or ""
+        return {"name": zh_name.strip()}
+    except Exception as e:
+        print(f"[nintendo-name] {e}")
+        return {"name": ""}
+
 @app.get("/api/config")
 def get_config():
     conn = get_db()

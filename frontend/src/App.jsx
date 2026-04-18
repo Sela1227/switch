@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.4";
+const VERSION = "V1.12.5";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -305,8 +305,20 @@ export default function App() {
   }
 
   async function translateGameName(englishName) {
+    if (!englishName) return englishName;
+
+    // Step 1：查任天堂台灣官網官方中文名
+    try {
+      const res = await fetch(`/api/nintendo-name?q=${encodeURIComponent(englishName)}`);
+      const data = await res.json();
+      if (data.name && data.name !== englishName && data.name.length > 0) {
+        return data.name;
+      }
+    } catch {}
+
+    // Step 2：Claude 翻譯（需要 API Key）
     const ck = claudeKey();
-    if (!ck || !englishName) return englishName;
+    if (!ck) return englishName;
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
