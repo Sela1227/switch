@@ -135,7 +135,11 @@ def return_borrow(borrow_id: str):
     conn.execute("UPDATE borrows SET returned_at=? WHERE id=?",(datetime.now().isoformat(),borrow_id))
     conn.commit(); conn.close(); return {"ok": True}
 
-@app.get("/api/config")
+@app.delete("/api/borrows/{borrow_id}", dependencies=[Depends(verify_admin)])
+def delete_borrow(borrow_id: str):
+    conn = get_db()
+    conn.execute("DELETE FROM borrows WHERE id=?",(borrow_id,))
+    conn.commit(); conn.close(); return {"ok": True}
 def get_config():
     conn = get_db()
     total = conn.execute("SELECT COUNT(*) FROM rawg_games").fetchone()[0]

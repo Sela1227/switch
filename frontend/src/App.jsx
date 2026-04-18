@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.9.6";
+const VERSION = "V1.10.0";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -149,6 +149,11 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState({ claudeKey: "" });
   const [editForm, setEditForm]   = useState({ number: "", funRating: "", name: "", ownedPlatform: "" });
   const [saving, setSaving]       = useState(false);
+  const [showAllHist, setShowAllHist] = useState(false);
+  const [addTab, setAddTab]       = useState("search"); // "search" | "manual"
+  const [manualForm, setManualForm] = useState({ name:"", released:"", genres:"" });
+  const [manualCover, setManualCover] = useState(null); // base64
+  const imgRef = useRef(null);
 
   const claudeKey = () => localStorage.getItem("svClaudeKey") || "";
   const adminPin  = () => sessionStorage.getItem("svPin") || "";
@@ -281,6 +286,7 @@ export default function App() {
   function closeAddGame() {
     setModal(null); setQuery(""); setResults([]); setSearchErr("");
     setTranslatedQ(""); setShowManualQ(false);
+    setAddTab("search"); setManualForm({ name:"", released:"", genres:"" }); setManualCover(null);
   }
 
   async function submitBorrow() {
@@ -305,7 +311,54 @@ export default function App() {
     } catch { alert("歸還失敗"); }
   }
 
-  async function deleteGame(id) {
+  async function deleteBorrow(id) {
+    try {
+      await api(`/api/borrows/${id}`, { method: "DELETE", pin: adminPin() });
+      await loadAll();
+    } catch { alert("刪除失敗"); }
+  }
+
+  async function addManualGame() {
+    if (!manualForm.name.trim()) return;
+    const id = "manual_" + Date.now();
+    const genres = manualForm.genres ? manualForm.genres.split(/[,，]/).map(s=>s.trim()).filter(Boolean) : [];
+    try {
+      await api("/api/games", { method:"POST", pin:adminPin(), body:{
+        id, name:manualForm.name.trim(),
+        cover: manualCover || null,
+        genres, released: manualForm.released || null,
+        platforms:[], owned_platform: null
+      }});
+      await loadAll();
+      setManualForm({ name:"", released:"", genres:"" });
+      setManualCover(null);
+      setAddTab("search");
+      setModal(null);
+    } catch { alert("新增失敗"); }
+  }
+
+  async function handleCoverUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const base64 = await new Promise(resolve => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        // 縮放到最大 400px 寬（直式封面）
+        const max = 400;
+        const ratio = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = url;
+    });
+    setManualCover(base64);
+  }
     try {
       await api(`/api/games/${id}`, { method: "DELETE", pin: adminPin() });
       await loadAll(); setModal(null);
@@ -455,115 +508,156 @@ export default function App() {
       {/* 新增遊戲 */}
       {modal === "addGame" && (
         <Modal title="新增遊戲" onClose={closeAddGame}>
-          {/* 搜尋平台 */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={S.fieldLabel}>搜尋平台</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {/* 頁籤 */}
+          <div style={{ display:"flex", gap:0, marginBottom:14, background:"#1a1a24", borderRadius:10, padding:3 }}>
+            {[["search","🔍 搜尋"],["manual","✏️ 手動新增"]].map(([t,l]) => (
+              <button key={t} onClick={() => setAddTab(t)}
+                style={{ flex:1, background:addTab===t?"#e60012":"transparent", border:"none",
+                         color:addTab===t?"#fff":"#666", padding:"7px", borderRadius:8, fontSize:13,
+                         cursor:"pointer", fontWeight:addTab===t?700:400, touchAction:"manipulation" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {addTab === "search" && (<>
+            {/* 平台 */}
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
               {PLATFORMS.map(p => (
                 <button key={p.id} style={searchPlatform===p.rawg ? S.filterActive : S.filterBtn}
                   onClick={() => setSearchPlatform(p.rawg)}>{p.label}</button>
               ))}
             </div>
-          </div>
-
-          {/* 搜尋框 + 拍照 */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input style={S.input} placeholder="遊戲名稱（中文或英文）" value={query}
-              onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && doSearch()} />
-            {claudeKey() && (
-              <button style={{ ...S.searchBtn, background: "#2a2a38", fontSize: 18, padding: "0 12px" }}
-                onClick={() => cameraRef.current?.click()} disabled={identifying} title="拍照辨識">
-                {identifying ? "⏳" : "📷"}
+            {/* 搜尋框 */}
+            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+              <input style={S.input} placeholder="遊戲名稱（中文或英文）" value={query}
+                onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key==="Enter" && doSearch()} />
+              {claudeKey() && (
+                <button style={{ ...S.searchBtn, background:"#2a2a38", fontSize:18, padding:"0 12px" }}
+                  onClick={() => cameraRef.current?.click()} disabled={identifying}>
+                  {identifying?"⏳":"📷"}
+                </button>
+              )}
+              <button style={S.searchBtn} onClick={doSearch} disabled={searching||identifying}>
+                {searching?"…":"搜尋"}
               </button>
+            </div>
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+              style={{ display:"none" }} onChange={handleCamera} />
+            {identifying && <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>📷 AI 辨識中...</div>}
+            {claudeKey() && <div style={{ fontSize:11, color:"#4ade80", marginBottom:4 }}>✓ Claude AI 輔助已啟用</div>}
+            {translatedQ && !showManualQ && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10, background:"#1a1a24", borderRadius:8, padding:"6px 10px" }}>
+                <span style={{ fontSize:11, color:"#666" }}>🔍</span>
+                <span style={{ fontSize:11, color:"#e2e2e8", flex:1 }}>{translatedQ}</span>
+                <button onClick={() => { setManualQ(translatedQ); setShowManualQ(true); }}
+                  style={{ fontSize:10, color:"#f87171", background:"transparent", border:"1px solid #3a1a1a", borderRadius:5, padding:"2px 8px", cursor:"pointer" }}>
+                  不對？修改
+                </button>
+              </div>
             )}
-            <button style={S.searchBtn} onClick={doSearch} disabled={searching || identifying}>
-              {searching ? "…" : "搜尋"}
-            </button>
-          </div>
-          {/* 隱藏的 camera input */}
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-            style={{ display: "none" }} onChange={handleCamera} />
-          {identifying && (
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 8, textAlign: "center" }}>
-              📷 AI 辨識中，請稍候...
+            {showManualQ && (
+              <div style={{ marginBottom:10, background:"#1a1a24", borderRadius:8, padding:"8px 10px" }}>
+                <div style={{ fontSize:10, color:"#f87171", marginBottom:6 }}>輸入正確英文名稱：</div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <input style={{ ...S.input, flex:1 }} value={manualQ}
+                    onChange={e => setManualQ(e.target.value)}
+                    onKeyDown={e => e.key==="Enter" && doDirectSearch(manualQ)} />
+                  <button style={S.searchBtn} onClick={() => doDirectSearch(manualQ)}>搜</button>
+                  <button onClick={() => setShowManualQ(false)}
+                    style={{ background:"#2a2a38", border:"none", color:"#888", borderRadius:9, padding:"0 10px", cursor:"pointer", fontSize:14, minHeight:44 }}>✕</button>
+                </div>
+              </div>
+            )}
+            {searchErr && <div style={{ color:"#f87171", fontSize:12, marginBottom:8 }}>{searchErr}</div>}
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {results.map(r => {
+                const slugs = (r.platforms||[]).map(p=>p.platform.slug).filter(s=>MAJOR_SLUGS.includes(s));
+                const sel = resultPlatforms[r.id] || slugs[0];
+                return (
+                  <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1a24", borderRadius:10, padding:"8px 10px", border:"1px solid #252535" }}>
+                    <div style={{ width:52, height:52, flexShrink:0, borderRadius:6, overflow:"hidden", background:"#111" }}>
+                      {r.background_image
+                        ? <img src={r.background_image} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                        : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:2 }}>{r.name}</div>
+                      <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>
+                        {r.genres?.slice(0,2).map(g=>gZh(g.name)).join("・")}
+                        {r.released && <span> · {r.released.slice(0,4)}</span>}
+                      </div>
+                      {slugs.length > 0 && (
+                        <div style={{ display:"flex", gap:3 }}>
+                          {slugs.map(s => (
+                            <button key={s} onClick={() => setResultPlatforms(prev=>({...prev,[r.id]:s}))}
+                              style={{ background:sel===s?"#e60012":"#252535", border:"none", color:sel===s?"#fff":"#888",
+                                       padding:"2px 8px", borderRadius:10, fontSize:10, cursor:"pointer", fontWeight:sel===s?700:400 }}>
+                              {PLAT_SLUG_LABEL[s]||s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => addGame(r, sel)}
+                      style={{ background:"#e60012", border:"none", color:"#fff", borderRadius:8, padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0, minHeight:40 }}>＋</button>
+                  </div>
+                );
+              })}
             </div>
-          )}
+            {results.length > 0 && <div style={{ marginTop:8, fontSize:11, color:"#444", textAlign:"center" }}>封面資料：IGDB / RAWG</div>}
+          </>)}
 
-          {/* 翻譯結果 */}
-          {claudeKey() && <div style={{ fontSize: 11, color: "#4ade80", marginBottom: 4 }}>✓ Claude AI 輔助已啟用</div>}
-          {translatedQ && !showManualQ && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, background: "#1a1a24", borderRadius: 8, padding: "6px 10px" }}>
-              <span style={{ fontSize: 11, color: "#666" }}>🔍</span>
-              <span style={{ fontSize: 11, color: "#e2e2e8", flex: 1 }}>{translatedQ}</span>
-              <button onClick={() => { setManualQ(translatedQ); setShowManualQ(true); }}
-                style={{ fontSize: 10, color: "#f87171", background: "transparent", border: "1px solid #3a1a1a", borderRadius: 5, padding: "2px 8px", cursor: "pointer", whiteSpace: "nowrap", minHeight: 26 }}>
-                不對？修改
-              </button>
+          {addTab === "manual" && (<>
+            {/* 封面上傳 */}
+            <div style={{ marginBottom:12 }}>
+              <div style={S.fieldLabel}>封面圖片</div>
+              <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                <div style={{ width:70, height:98, borderRadius:8, overflow:"hidden", background:"#1a1a24", border:"1px solid #252535", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {manualCover
+                    ? <img src={manualCover} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                    : <span style={{ fontSize:28, color:"#333" }}>🎮</span>}
+                </div>
+                <div style={{ flex:1 }}>
+                  <button onClick={() => imgRef.current?.click()}
+                    style={{ background:"#1a1a24", border:"1px solid #252535", color:"#aaa", padding:"8px 14px", borderRadius:8, fontSize:13, cursor:"pointer", display:"block", marginBottom:6, width:"100%", touchAction:"manipulation" }}>
+                    📁 從相簿選取
+                  </button>
+                  {manualCover && (
+                    <button onClick={() => setManualCover(null)}
+                      style={{ background:"transparent", border:"1px solid #3a1a1a", color:"#f87171", padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer", width:"100%" }}>
+                      移除圖片
+                    </button>
+                  )}
+                </div>
+              </div>
+              <input ref={imgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleCoverUpload} />
             </div>
-          )}
-          {showManualQ && (
-            <div style={{ marginBottom: 10, background: "#1a1a24", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ fontSize: 10, color: "#f87171", marginBottom: 6 }}>手動輸入正確的英文遊戲名稱：</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input style={{ ...S.input, flex: 1 }} value={manualQ}
-                  onChange={e => setManualQ(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && doDirectSearch(manualQ)} />
-                <button style={S.searchBtn} onClick={() => doDirectSearch(manualQ)}>搜</button>
-                <button onClick={() => setShowManualQ(false)}
-                  style={{ background: "#2a2a38", border: "none", color: "#888", borderRadius: 9, padding: "0 10px", cursor: "pointer", fontSize: 14, minHeight: 44 }}>✕</button>
+            <div style={{ marginBottom:10 }}>
+              <div style={S.fieldLabel}>遊戲名稱 *</div>
+              <input style={S.input} placeholder="輸入遊戲名稱" value={manualForm.name}
+                onChange={e => setManualForm(f=>({...f, name:e.target.value}))} />
+            </div>
+            <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={S.fieldLabel}>發行年份</div>
+                <input style={S.input} placeholder="2024-01-01" value={manualForm.released}
+                  onChange={e => setManualForm(f=>({...f, released:e.target.value}))} />
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={S.fieldLabel}>類別（逗號分隔）</div>
+                <input style={S.input} placeholder="動作, 冒險" value={manualForm.genres}
+                  onChange={e => setManualForm(f=>({...f, genres:e.target.value}))} />
               </div>
             </div>
-          )}
-
-          {searchErr && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 8 }}>{searchErr}</div>}
-
-          {/* 搜尋結果：緊湊列表 */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {results.map(r => {
-              const slugs = (r.platforms || []).map(p => p.platform.slug).filter(s => MAJOR_SLUGS.includes(s));
-              const sel = resultPlatforms[r.id] || slugs[0];
-              return (
-                <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1a24", borderRadius:10, padding:"8px 10px", border:"1px solid #252535" }}>
-                  {/* 封面縮圖 */}
-                  <div style={{ width:52, height:52, flexShrink:0, borderRadius:6, overflow:"hidden", background:"#111" }}>
-                    {r.background_image
-                      ? <img src={r.background_image} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} alt="" />
-                      : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>
-                    }
-                  </div>
-                  {/* 資訊 */}
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:2 }}>{r.name}</div>
-                    <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>
-                      {r.genres?.slice(0,2).map(g => gZh(g.name)).join("・")}
-                      {r.released && <span> · {r.released.slice(0,4)}</span>}
-                    </div>
-                    {/* 平台選擇：緊湊小 chip */}
-                    {slugs.length > 0 && (
-                      <div style={{ display:"flex", gap:3 }}>
-                        {slugs.map(s => (
-                          <button key={s} onClick={() => setResultPlatforms(prev=>({...prev,[r.id]:s}))}
-                            style={{ background: sel===s?"#e60012":"#252535", border:"none", color: sel===s?"#fff":"#888",
-                                     padding:"2px 8px", borderRadius:10, fontSize:10, cursor:"pointer",
-                                     fontWeight: sel===s?700:400, touchAction:"manipulation" }}>
-                            {PLAT_SLUG_LABEL[s]||s}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* 加入按鈕 */}
-                  <button onClick={() => addGame(r, sel)}
-                    style={{ background:"#e60012", border:"none", color:"#fff", borderRadius:8,
-                             padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer",
-                             flexShrink:0, touchAction:"manipulation", minHeight:40 }}>＋</button>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ marginTop:8, fontSize:11, color:"#444", textAlign:"center" }}>封面資料：IGDB / RAWG</div>
+            <button style={manualForm.name.trim() ? S.redBtn : S.disabledBtn}
+              disabled={!manualForm.name.trim()} onClick={addManualGame}>
+              ＋ 加入收藏
+            </button>
+          </>)}
         </Modal>
       )}
+
 
       {/* 遊戲詳情 */}
       {modal === "gameDetail" && selGame && (() => {
@@ -672,11 +766,30 @@ export default function App() {
             {/* 借出紀錄 */}
             {hist.length > 0 && (
               <div style={{ marginBottom:8 }}>
-                <div style={{ ...S.fieldLabel, marginBottom:5 }}>借出紀錄</div>
-                {hist.map(h => (
-                  <div key={h.id} style={{ display:"flex", justifyContent:"space-between", background:"#1a1a24", borderRadius:7, padding:"5px 9px", marginBottom:3 }}>
-                    <span style={{ color:"#ccc", fontSize:12 }}>{h.borrowerName}</span>
-                    <span style={{ fontSize:11, color: h.returnedAt?"#4ade80":"#fbbf24" }}>{h.returnedAt ? `已還 ${h.returnedAt.split("T")[0]}` : "借出中"}</span>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                  <div style={S.fieldLabel}>借出紀錄（共 {hist.length} 筆）</div>
+                  {hist.length > 1 && (
+                    <button onClick={() => setShowAllHist(v=>!v)}
+                      style={{ fontSize:11, color:"#888", background:"transparent", border:"none", cursor:"pointer", padding:0 }}>
+                      {showAllHist ? "收起 ▲" : `查看全部 ▼`}
+                    </button>
+                  )}
+                </div>
+                {(showAllHist ? hist : [hist[0]]).map(h => (
+                  <div key={h.id} style={{ display:"flex", alignItems:"center", gap:8, background:"#1a1a24", borderRadius:7, padding:"6px 10px", marginBottom:3 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <span style={{ color:"#ccc", fontSize:12, fontWeight:600 }}>{h.borrowerName}</span>
+                      <span style={{ color:"#555", fontSize:11, marginLeft:8 }}>{h.borrowDate}</span>
+                    </div>
+                    <span style={{ fontSize:11, color: h.returnedAt?"#4ade80":"#fbbf24", flexShrink:0 }}>
+                      {h.returnedAt ? `已還 ${h.returnedAt.split("T")[0]}` : "借出中"}
+                    </span>
+                    {isAdmin && showAllHist && (
+                      <button onClick={() => deleteBorrow(h.id)}
+                        style={{ background:"transparent", border:"none", color:"#555", fontSize:14, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>
+                        🗑
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -844,14 +957,13 @@ function NavItem({ label, emoji, active, onClick, alert }) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div style={{ background:"#111116", borderRadius:"20px 20px 0 0", width:"100%", maxWidth:520, maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column" }}>
-        <div style={{ width:36, height:4, background:"#2a2a38", borderRadius:2, margin:"10px auto 0" }} />
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", borderBottom:"1px solid #1e1e28", flexShrink:0 }}>
-          <span style={{ fontWeight:700, fontSize:15, color:"#e2e2e8" }}>{title}</span>
-          <button style={{ background:"#1e1e28", border:"none", color:"#888", width:32, height:32, borderRadius:"50%", cursor:"pointer", fontSize:14, touchAction:"manipulation" }} onClick={onClose}>✕</button>
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.82)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:"16px" }}>
+      <div style={{ background:"#111116", borderRadius:16, width:"100%", maxWidth:520, maxHeight:"88vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 20px 60px rgba(0,0,0,0.8)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 16px", borderBottom:"1px solid #1e1e28", flexShrink:0 }}>
+          <span style={{ fontWeight:700, fontSize:16, color:"#e2e2e8" }}>{title}</span>
+          <button style={{ background:"#1e1e28", border:"none", color:"#888", width:30, height:30, borderRadius:"50%", cursor:"pointer", fontSize:14 }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ overflowY:"auto", padding:"14px 14px", flex:1, WebkitOverflowScrolling:"touch" }}>{children}</div>
+        <div style={{ overflowY:"auto", padding:"14px 16px", flex:1, WebkitOverflowScrolling:"touch" }}>{children}</div>
       </div>
     </div>
   );
