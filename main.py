@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sqlite3, os, json, httpx
+import sqlite3, os, json, httpx, time as _time
 from datetime import datetime
 from typing import Optional, List
 
@@ -29,6 +29,11 @@ def init_db():
     conn.execute("""CREATE TABLE IF NOT EXISTS borrows (
         id TEXT PRIMARY KEY, game_id TEXT NOT NULL, borrower_name TEXT NOT NULL,
         borrow_date TEXT NOT NULL, expected_return TEXT NOT NULL, returned_at TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
     )""")
     for col, typedef in [
         ("number", "INTEGER"), ("fun_rating", "INTEGER"),
@@ -147,15 +152,20 @@ def return_borrow(borrow_id: str):
 def get_config():
     return {"ok": True}
 
-# ── RAWG 新遊戲快取（6 小時更新一次）────────────────────────────────────
-import time as _time
-_recent_cache: dict = {"data": [], "ts": 0}
-CACHE_TTL = 6 * 3600
+# ── RAWG 新遊戲快取（存 SQLite，48 小時更新一次）────────────────────────
+CACHE_TTL = 48 * 3600
 
 async def get_recent_games(api_key: str) -> list:
-    now = _time.time()
-    if now - _recent_cache["ts"] < CACHE_TTL and _recent_cache["data"]:
-        return _recent_cache["data"]
+    conn = get_db()
+    row = conn.execute("SELECT value, updated_at FROM metadata WHERE key='recent_games'").fetchone()
+    conn.close()
+
+    if row:
+        age = _time.time() - datetime.fromisoformat(row["updated_at"]).timestamp()
+        if age < CACHE_TTL:
+            return json.loads(row["value"])
+
+    # 超過 48 小時或沒資料才重新抓
     try:
         key_param = f"&key={api_key}" if api_key else ""
         async with httpx.AsyncClient() as client:
@@ -163,12 +173,18 @@ async def get_recent_games(api_key: str) -> list:
                 f"https://api.rawg.io/api/games?platforms=7&ordering=-released&page_size=40{key_param}",
                 timeout=10
             )
-        games = res.json().get("results", [])
-        _recent_cache["data"] = [{"name": g["name"], "released": g.get("released", "")} for g in games]
-        _recent_cache["ts"] = now
+        games = [{"name": g["name"], "released": g.get("released", "")}
+                 for g in res.json().get("results", [])]
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata VALUES ('recent_games', ?, ?)",
+            (json.dumps(games), datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
+        return games
     except Exception:
-        pass
-    return _recent_cache["data"]
+        return json.loads(row["value"]) if row else []
 
 # ── helper：單次 RAWG 搜尋 ────────────────────────────────────────────────
 async def rawg_search(q: str, plat_param: str, key_param: str) -> list:
@@ -216,28 +232,38 @@ async def smart_search(q: str, platform: str = "7", request: Request = None):
 
     search_query = q
 
-    # ── Step 1：抓近期 Switch 新遊戲當 Claude 的參考資料 ────────────────
+    # ── Step 1：抓近期 Switch 新遊戲當 Claude 的補充參考 ───────────────
     recent_ctx = ""
     if claude_key:
         try:
             recent = await get_recent_games(api_key)
             if recent:
                 lines = "\n".join(f"- {g['name']} ({g['released']})" for g in recent[:30])
-                recent_ctx = f"\n\n近期發布的遊戲（對應中文名時可參考）：\n{lines}"
+                recent_ctx = (
+                    "\n\n以下是 RAWG 近期收錄的最新遊戲（僅供補充參考，用於 2025 年後的新遊戲）：\n"
+                    + lines
+                )
         except Exception:
             pass
 
-    # ── Step 2：Claude 翻譯（含新遊戲清單 context）──────────────────────
+    # ── Step 2：Claude 翻譯（自身知識優先，清單僅補充新遊戲）──────────
     if claude_key:
         try:
             system_translate = (
-                "你是資深遊戲玩家助理，熟悉各平台遊戲。\n"
-                "將使用者的遊戲搜尋關鍵字轉換成最適合在 RAWG 搜尋的英文遊戲名稱。\n"
-                "規則：\n"
-                "1. 若輸入已是正確英文遊戲名稱，原樣回傳\n"
-                "2. 中文/日文遊戲名稱，找出對應官方英文名\n"
-                "3. 簡稱或暱稱，推斷最可能的正式遊戲名\n"
-                "4. 只回傳英文遊戲名稱，不加任何說明或標點"
+                "你是資深遊戲玩家助理，熟悉 2000 年至今各平台遊戲。\n"
+                "任務：將使用者的遊戲搜尋關鍵字，轉換成最適合在 RAWG 搜尋的官方英文遊戲名稱。\n\n"
+                "規則（依優先順序）：\n"
+                "1. 優先使用你自己的遊戲知識判斷，尤其是 2024 年以前的遊戲\n"
+                "2. 若輸入已是正確英文名稱，原樣回傳，不要修改\n"
+                "3. 中文/日文遊戲名，找出對應的官方英文名稱\n"
+                "4. 暱稱或簡稱，推斷最可能的正式遊戲名\n"
+                "5. 只回傳英文遊戲名稱，不加任何說明或標點\n\n"
+                "範例：\n"
+                "- 瑪利歐 驚奇 → Super Mario Bros. Wonder\n"
+                "- 薩爾達 王國之淚 → The Legend of Zelda Tears of the Kingdom\n"
+                "- 寶可夢朱 → Pokemon Scarlet\n"
+                "- 瑪利歐賽車世界 → Mario Kart World\n"
+                "- 勇者鬥惡龍 7 重製版 → Dragon Quest VII Reimagined"
                 + recent_ctx
             )
             translated = await claude_query(system_translate, q, claude_key)
