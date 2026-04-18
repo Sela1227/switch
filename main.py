@@ -10,44 +10,54 @@ app = FastAPI(title="Switch Vault API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 ADMIN_PIN          = os.getenv("ADMIN_PIN", "1234")
-DB_PATH            = os.getenv("DB_PATH", "/data/switch_vault.db")
 IGDB_CLIENT_ID     = os.getenv("IGDB_CLIENT_ID", "")
 IGDB_CLIENT_SECRET = os.getenv("IGDB_CLIENT_SECRET", "")
 RAWG_API_KEY       = os.getenv("RAWG_API_KEY", "")
 
+# 嘗試使用 /data，失敗則 fallback 到 /tmp
+_default_db = os.getenv("DB_PATH", "/data/switch_vault.db")
+try:
+    os.makedirs(os.path.dirname(_default_db), exist_ok=True)
+    open(_default_db, "a").close()
+    DB_PATH = _default_db
+except Exception:
+    DB_PATH = "/tmp/switch_vault.db"
+
 def igdb_enabled(): return bool(IGDB_CLIENT_ID and IGDB_CLIENT_SECRET)
 
 def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    conn = get_db()
-    conn.execute("""CREATE TABLE IF NOT EXISTS games (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, cover TEXT,
-        genres TEXT DEFAULT '[]', rating REAL, added_at TEXT,
-        number INTEGER, fun_rating INTEGER,
-        platforms TEXT DEFAULT '[]', released TEXT, owned_platform TEXT
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS borrows (
-        id TEXT PRIMARY KEY, game_id TEXT NOT NULL, borrower_name TEXT NOT NULL,
-        borrow_date TEXT NOT NULL, expected_return TEXT NOT NULL, returned_at TEXT
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS metadata (
-        key TEXT PRIMARY KEY, value TEXT, updated_at TEXT
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS rawg_games (
-        name TEXT PRIMARY KEY, released TEXT, first_seen TEXT
-    )""")
-    for col, typedef in [
-        ("number","INTEGER"),("fun_rating","INTEGER"),
-        ("platforms","TEXT DEFAULT '[]'"),("released","TEXT"),("owned_platform","TEXT")
-    ]:
-        try: conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typedef}")
-        except: pass
-    conn.commit(); conn.close()
+    try:
+        conn = get_db()
+        conn.execute("""CREATE TABLE IF NOT EXISTS games (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, cover TEXT,
+            genres TEXT DEFAULT '[]', rating REAL, added_at TEXT,
+            number INTEGER, fun_rating INTEGER,
+            platforms TEXT DEFAULT '[]', released TEXT, owned_platform TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS borrows (
+            id TEXT PRIMARY KEY, game_id TEXT NOT NULL, borrower_name TEXT NOT NULL,
+            borrow_date TEXT NOT NULL, expected_return TEXT NOT NULL, returned_at TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS rawg_games (
+            name TEXT PRIMARY KEY, released TEXT, first_seen TEXT
+        )""")
+        for col, typedef in [
+            ("number","INTEGER"),("fun_rating","INTEGER"),
+            ("platforms","TEXT DEFAULT '[]'"),("released","TEXT"),("owned_platform","TEXT")
+        ]:
+            try: conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typedef}")
+            except: pass
+        conn.commit(); conn.close()
+    except Exception as e:
+        print(f"[init_db error] {e}")
 
 init_db()
 
@@ -140,6 +150,8 @@ def delete_borrow(borrow_id: str):
     conn = get_db()
     conn.execute("DELETE FROM borrows WHERE id=?",(borrow_id,))
     conn.commit(); conn.close(); return {"ok": True}
+
+@app.get("/api/config")
 def get_config():
     conn = get_db()
     total = conn.execute("SELECT COUNT(*) FROM rawg_games").fetchone()[0]

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.1";
+const VERSION = "V1.10.2";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
