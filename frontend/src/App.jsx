@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.0";
+const VERSION = "V1.10.1";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -359,6 +359,8 @@ export default function App() {
     });
     setManualCover(base64);
   }
+
+  async function deleteGame(id) {
     try {
       await api(`/api/games/${id}`, { method: "DELETE", pin: adminPin() });
       await loadAll(); setModal(null);
