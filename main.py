@@ -442,7 +442,29 @@ def clean_gamer_name(raw: str) -> str:
     raw = _re.sub(r'\s*（[^）]{1,30}）\s*$', '', raw)
     return raw.strip()
 
-async def get_acg_sn_from_atm(sn: str, client: httpx.AsyncClient) -> str | None:
+async def get_acg_detail(acg_sn: str, client: httpx.AsyncClient) -> dict:
+    """從 acgDetail 頁面取正確的遊戲名稱和封面"""
+    try:
+        url = f"https://acg.gamer.com.tw/acgDetail.php?s={acg_sn}"
+        res = await client.get(url, headers=GAMER_HEADERS, timeout=8)
+        soup = BeautifulSoup(res.text, "html.parser")
+        # 取遊戲名：h1 或 .ACG-name 或 og:title
+        name = ""
+        og_title = soup.find("meta", property="og:title")
+        if og_title: name = og_title.get("content","").strip()
+        if not name:
+            h1 = soup.find("h1")
+            if h1: name = h1.get_text(strip=True)
+        # 取封面：og:image 最可靠
+        cover = ""
+        og_img = soup.find("meta", property="og:image")
+        if og_img: cover = og_img.get("content","").strip()
+        if not cover:
+            # 用 sn 組合封面 URL
+            cover = await find_acg_cover(int(acg_sn), client)
+        return {"name": name, "cover": cover}
+    except:
+        return {"name": "", "cover": ""}
     """從 atmItem 頁面找到對應的 ACG sn（封面用）"""
     try:
         url = f"https://buy.gamer.com.tw/atmItem.php?sn={sn}"
@@ -522,10 +544,13 @@ async def gamer_search(q: str):
                 if name and len(name) > 1:
                     candidates.append({"acg_sn": acg_sn, "zh_name": name})
 
-            # 並行取封面
+            # 並行取 acgDetail（取正確名稱和封面）
             async def resolve_acg(c):
-                cover = await find_acg_cover(int(c["acg_sn"]), client)
-                return {"zh_name": c["zh_name"], "cover_url": cover, "gamer_sn": c["acg_sn"]}
+                detail = await get_acg_detail(c["acg_sn"], client)
+                name = detail["name"] or c["zh_name"]  # fallback 用連結文字
+                name = clean_gamer_name(name)
+                cover = detail["cover"] or await find_acg_cover(int(c["acg_sn"]), client)
+                return {"zh_name": name, "cover_url": cover, "gamer_sn": c["acg_sn"]}
 
             results = await asyncio.gather(*[resolve_acg(c) for c in candidates])
             results = [r for r in results if r["zh_name"]]
