@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.23";
+const VERSION = "V1.13.24";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -1241,6 +1241,29 @@ export default function App() {
                   <button style={{ flex:2, background:"#1a2a1a", border:"1px solid #2a4a2a", color:"#4ade80", padding:"9px", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", touchAction:"manipulation" }}
                     onClick={() => { setBorrowForm({ name:"", borrowDate:today(), expectedReturn:"" }); setModal("borrow"); }}>
                     📤 借出
+                  </button>
+                )}
+                {isAdmin && (
+                  <button style={{ flex:1, background:"transparent", border:"1px solid #1a3a4a", color:"#60a5fa", padding:"9px", borderRadius:10, fontSize:13, cursor:"pointer", touchAction:"manipulation" }}
+                    title="複製一份"
+                    onClick={async () => {
+                      const numStr = window.prompt("複製時的編號（直接按確定可跳過）", "");
+                      if (numStr === null) return; // 按取消
+                      const num = numStr.trim() ? parseInt(numStr) || null : null;
+                      const newId = `${g.id}_copy_${Date.now()}`;
+                      try {
+                        await api("/api/games", { method:"POST", pin:adminPin(), body:{
+                          id: newId, name: g.name, cover: g.cover,
+                          genres: g.genres || [], platforms: g.platforms || [],
+                          released: g.released || null, number: num,
+                          owned_platform: g.ownedPlatform || null,
+                          user_id: myUserId(), base_game_id: g.baseGameId || g.id
+                        }});
+                        await loadAll();
+                        setModal(null);
+                      } catch { alert("複製失敗"); }
+                    }}>
+                    📋
                   </button>
                 )}
                 {!ab && isAdmin && (
