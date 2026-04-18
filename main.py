@@ -482,84 +482,72 @@ async def get_acg_detail(acg_sn: str, client: httpx.AsyncClient) -> dict:
     return None
 
 async def gamer_search(q: str):
-    """搜尋巴哈 ACG 資料庫，回傳多筆結果（含封面）"""
+    """搜尋巴哈 ACG 資料庫，回傳多筆結果"""
     if not q.strip():
         return {"results": []}
-    from urllib.parse import quote
-    import asyncio
+    from urllib.parse import quote as url_quote
+    results = []
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
 
-            # 策略 1：acg.gamer.com.tw 直接搜遊戲資料庫
-            acg_url = f"https://acg.gamer.com.tw/search.php?keyword={quote(q)}&page=1"
+            # 策略 1：acg.gamer.com.tw 找作品資料庫
+            acg_url = f"https://acg.gamer.com.tw/search.php?keyword={url_quote(q)}&page=1"
             res = await client.get(acg_url, headers=GAMER_HEADERS)
+            print(f"[gamer-search] ACG status={res.status_code} q={q!r}")
             soup = BeautifulSoup(res.text, "html.parser")
             acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+            print(f"[gamer-search] acg_links={len(acg_links)}")
 
-            # 策略 2：若 acg 搜不到，用 buy.gamer.com.tw
+            # 策略 2：buy.gamer.com.tw 商城搜尋
             if not acg_links:
-                buy_url = f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"
+                buy_url = f"https://buy.gamer.com.tw/search.php?kw={url_quote(q)}"
                 res2 = await client.get(buy_url, headers=GAMER_HEADERS)
-                soup2 = BeautifulSoup(res2.text, "html.parser")
-                acg_links = soup2.find_all("a", href=lambda h: h and "acgDetail" in str(h))
-                # 若 buy 也沒 acgDetail，找 atmItem 連結
-                if not acg_links:
-                    atm_links = soup2.find_all("a", href=lambda h: h and "atmItem" in str(h))
-                    candidates = []
-                    seen = set()
-                    for lk in atm_links[:6]:
-                        m = re.search(r'sn=(\d+)', lk.get("href",""))
-                        if not m or m.group(1) in seen: continue
-                        seen.add(m.group(1))
-                        raw = lk.get("title","") or lk.get_text(strip=True)
-                        name = clean_gamer_name(raw)
-                        if name and len(name) > 1:
-                            candidates.append({"sn": m.group(1), "zh_name": name})
+                soup = BeautifulSoup(res2.text, "html.parser")
+                acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+                print(f"[gamer-search] buy acg_links={len(acg_links)}")
 
-                    async def resolve_atm(c):
-                        acg_sn = await get_acg_sn_from_atm(c["sn"], client)
-                        cover = await find_acg_cover(int(acg_sn), client) if acg_sn else ""
-                        return {"zh_name": c["zh_name"], "cover_url": cover, "gamer_sn": c["sn"]}
-
-                    results = await asyncio.gather(*[resolve_atm(c) for c in candidates])
-                    results = [r for r in results if r["zh_name"]]
-                    print(f"[gamer-search buy-fallback] q={q!r} → {len(results)}")
-                    return {"results": list(results)}
-                soup = soup2
-
-            # 從 acgDetail 連結取名稱 + ACG sn
-            candidates = []
+            # 從 acgDetail 連結逐個取名稱和封面
             seen = set()
-            for lk in acg_links[:8]:
+            for lk in acg_links[:6]:
                 m = re.search(r's=(\d+)', lk.get("href",""))
-                if not m or m.group(1) in seen: continue
-                seen.add(m.group(1))
+                if not m: continue
                 acg_sn = m.group(1)
+                if acg_sn in seen: continue
+                seen.add(acg_sn)
+
+                # 取正確名稱和封面（fetch acgDetail 頁面）
+                detail = await get_acg_detail(acg_sn, client)
                 raw = lk.get("title","") or lk.get_text(strip=True)
-                # 父元素可能有更完整名稱
-                if not raw or len(raw) < 2:
-                    p = lk.parent
-                    if p: raw = p.get_text(separator=" ", strip=True)[:80]
-                name = clean_gamer_name(raw)
+                name = clean_gamer_name(detail.get("name","") or raw)
+                cover = detail.get("cover","") or await find_acg_cover(int(acg_sn), client)
+
+                print(f"[gamer-search] sn={acg_sn} name={name!r} cover={bool(cover)}")
                 if name and len(name) > 1:
-                    candidates.append({"acg_sn": acg_sn, "zh_name": name})
+                    results.append({"zh_name": name, "cover_url": cover, "gamer_sn": acg_sn})
 
-            # 並行取 acgDetail（取正確名稱和封面）
-            async def resolve_acg(c):
-                detail = await get_acg_detail(c["acg_sn"], client)
-                name = detail["name"] or c["zh_name"]  # fallback 用連結文字
-                name = clean_gamer_name(name)
-                cover = detail["cover"] or await find_acg_cover(int(c["acg_sn"]), client)
-                return {"zh_name": name, "cover_url": cover, "gamer_sn": c["acg_sn"]}
-
-            results = await asyncio.gather(*[resolve_acg(c) for c in candidates])
-            results = [r for r in results if r["zh_name"]]
-            print(f"[gamer-search acg] q={q!r} → {len(results)}")
-            return {"results": list(results)}
+            # 策略 3：buy.gamer.com.tw atmItem 連結
+            if not results:
+                buy_url2 = f"https://buy.gamer.com.tw/search.php?kw={url_quote(q)}"
+                res3 = await client.get(buy_url2, headers=GAMER_HEADERS)
+                soup3 = BeautifulSoup(res3.text, "html.parser")
+                atm_links = soup3.find_all("a", href=lambda h: h and "atmItem" in str(h))
+                seen2 = set()
+                for lk in atm_links[:6]:
+                    m = re.search(r'sn=(\d+)', lk.get("href",""))
+                    if not m or m.group(1) in seen2: continue
+                    seen2.add(m.group(1))
+                    raw = lk.get("title","") or lk.get_text(strip=True)
+                    name = clean_gamer_name(raw)
+                    if not name or len(name) < 2: continue
+                    acg_sn = await get_acg_sn_from_atm(m.group(1), client)
+                    cover = await find_acg_cover(int(acg_sn), client) if acg_sn else ""
+                    results.append({"zh_name": name, "cover_url": cover, "gamer_sn": m.group(1)})
 
     except Exception as e:
-        print(f"[gamer-search] {e}")
-        return {"results": []}
+        print(f"[gamer-search] ERROR: {e}")
+
+    print(f"[gamer-search] final results={len(results)}")
+    return {"results": results}
 
 @app.get("/api/gamer-stats")
 def gamer_stats():
