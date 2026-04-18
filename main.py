@@ -547,23 +547,35 @@ def gamer_stats():
     return {"total": total, "by_platform": {r["platform"]: r["cnt"] for r in by_plat}}
 
 @app.get("/api/admin/gamer-debug")
-async def gamer_debug(c1: str = "27", c2: str = "1", pg: str = "1"):
-    """Debug: 看巴哈商城回傳的原始 HTML 結構"""
-    url = f"https://buy.gamer.com.tw/index_second_list.php?c1={c1}&c2={c2}&pg={pg}"
-    try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            res = await client.get(url, headers=GAMER_HEADERS)
-        soup = BeautifulSoup(res.text, "html.parser")
-        links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
-        return {
-            "status": res.status_code,
-            "url": url,
-            "atm_links_count": len(links),
-            "sample_links": [{"href": lk.get("href",""),"text": lk.get_text(strip=True)[:60],"title": lk.get("title","")} for lk in links[:5]],
-            "html_snippet": res.text[1000:2000],
-        }
-    except Exception as e:
-        return {"error": str(e)}
+async def gamer_debug(q: str = "pokopia", c1: str = "27", c2: str = "1", pg: str = "1"):
+    """Debug: 看 Railway 爬到的 HTML，找正確的連結 selector"""
+    from urllib.parse import quote
+    results = {}
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        # 試搜尋頁
+        for label, url in [
+            ("acg_search", f"https://acg.gamer.com.tw/search.php?kw={quote(q)}&page=1"),
+            ("buy_search", f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"),
+        ]:
+            try:
+                res = await client.get(url, headers=GAMER_HEADERS)
+                soup = BeautifulSoup(res.text, "html.parser")
+                acg_links = [{"href":a.get("href",""),"text":a.get_text(strip=True)[:40]}
+                             for a in soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))[:5]]
+                atm_links = [{"href":a.get("href",""),"text":a.get_text(strip=True)[:40]}
+                             for a in soup.find_all("a", href=lambda h: h and "atmItem" in str(h))[:5]]
+                all_links = [{"href":a.get("href","")[:80],"text":a.get_text(strip=True)[:40]}
+                             for a in soup.find_all("a", href=True)[:20]]
+                results[label] = {
+                    "status": res.status_code,
+                    "acg_links": acg_links,
+                    "atm_links": atm_links,
+                    "all_links_sample": all_links,
+                    "html_snippet": res.text[2000:3500],
+                }
+            except Exception as e:
+                results[label] = {"error": str(e)}
+    return results
 
 # ── Config ────────────────────────────────────────────────────────────────
 @app.get("/api/nintendo-name")
