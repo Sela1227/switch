@@ -166,9 +166,16 @@ async def translate_query(request: Request):
                 json={
                     "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 60,
-                    "messages": [{"role": "user", "content":
-                        f'Help search for a Nintendo Switch game on RAWG. If the input is already a proper English game title, return it EXACTLY unchanged. Only translate or convert if the input is in Chinese, Japanese, or is a vague non-English description. Return ONLY the game title, nothing else: "{query}"'
-                    }]
+                    "system": (
+                        "你是一位資深的 Nintendo Switch 玩家，熟悉各種遊戲的官方名稱。"
+                        "你的任務是將使用者輸入的遊戲名稱，轉換成 RAWG 資料庫中使用的正確官方英文遊戲名稱，方便進行搜尋。\n\n"
+                        "規則：\n"
+                        "1. 若輸入已經是正確的英文官方遊戲名稱，原樣回傳，不要修改\n"
+                        "2. 若輸入是中文、日文或其他語言，找出對應的官方英文名稱\n"
+                        "3. 若輸入是暱稱或簡稱（如「薩爾達」、「瑪利歐賽車」），推斷最可能的正式系列作品名稱\n"
+                        "4. 只回傳遊戲英文名稱，不要加任何解釋、標點或換行"
+                    ),
+                    "messages": [{"role": "user", "content": query}]
                 },
                 timeout=10
             )
