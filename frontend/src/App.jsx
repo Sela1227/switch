@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.12.7";
+const VERSION = "V1.12.8";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -465,7 +465,8 @@ export default function App() {
   }
 
   const [communityCovers, setCommunityCovers] = useState([]);
-  const [coverTab, setCoverTab] = useState("search"); // "search" | "community"
+  const [coverTab, setCoverTab] = useState("search"); // "search" | "community" | "url"
+  const [coverUrlInput, setCoverUrlInput] = useState("");
 
   async function updateCover(gameId, coverUrl, shareToComm = false) {
     try {
@@ -1189,11 +1190,11 @@ export default function App() {
         <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); setCommunityCovers([]); }}>
           {/* Tab 選擇 */}
           <div style={{ display:"flex", gap:0, marginBottom:12, background:"#1a1a24", borderRadius:8, padding:3 }}>
-            {[["search","🔍 搜尋"],["community",`👥 社群封面${communityCovers.length>0?` (${communityCovers.length})`:""}`]].map(([t,l]) => (
+            {[["search","🔍 搜尋"],["community",`👥 社群${communityCovers.length>0?` (${communityCovers.length})`:""}`],["url","🔗 網址"]].map(([t,l]) => (
               <button key={t} onClick={() => setCoverTab(t)}
                 style={{ flex:1, background:coverTab===t?"#e60012":"transparent", border:"none",
                          color:coverTab===t?"#fff":"#666", padding:"6px", borderRadius:6,
-                         fontSize:12, cursor:"pointer", fontWeight:coverTab===t?700:400 }}>
+                         fontSize:11, cursor:"pointer", fontWeight:coverTab===t?700:400 }}>
                 {l}
               </button>
             ))}
@@ -1250,6 +1251,30 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+          )}
+
+          {coverTab === "url" && (
+            <div>
+              <div style={{ fontSize:11, color:"#666", marginBottom:8 }}>
+                貼上圖片網址（支援巴哈、IGDB 或任何圖片連結）
+              </div>
+              <input style={{ ...S.input, marginBottom:8 }}
+                placeholder="https://p2.bahamut.com.tw/B/ACG/c/..."
+                value={coverUrlInput}
+                onChange={e => setCoverUrlInput(e.target.value)} />
+              {coverUrlInput && (
+                <div style={{ marginBottom:10, textAlign:"center" }}>
+                  <img src={coverUrlInput} style={{ maxHeight:180, maxWidth:"100%", borderRadius:8, objectFit:"contain" }}
+                    onError={e => { e.target.style.display="none"; }}
+                    alt="預覽" />
+                </div>
+              )}
+              <button style={coverUrlInput ? S.redBtn : S.disabledBtn}
+                disabled={!coverUrlInput}
+                onClick={() => { updateCover(selGame.id, coverUrlInput); setCoverUrlInput(""); }}>
+                套用此封面
+              </button>
+            </div>
           )}
         </Modal>
       )}

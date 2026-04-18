@@ -313,29 +313,50 @@ GAMER_HEADERS = {
 
 async def crawl_gamer_page(c1: str, c2: str, platform: str, pg: int = 1) -> list:
     url = f"https://buy.gamer.com.tw/index_second_list.php?c1={c1}&c2={c2}&pg={pg}"
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
         res = await client.get(url, headers=GAMER_HEADERS)
     if res.status_code != 200:
+        print(f"[gamer] {url} -> {res.status_code}: {res.text[:100]}")
         return []
     soup = BeautifulSoup(res.text, "html.parser")
+
+    # 策略：找所有連到 atmItem 的連結
+    links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
+    if not links:
+        print(f"[gamer] no atmItem links on page, html snippet: {res.text[500:1000]}")
+        return []
+
     items = []
-    for card in soup.select(".product-item, .item-card, li.item, .goods-item, div.item"):
-        name_el = card.select_one(".name, .title, h3, h4, .goods-name")
-        img_el  = card.select_one("img")
-        link_el = card.select_one("a[href*=\'atmItem\']")
-        if not name_el: continue
-        zh_name = name_el.get_text(strip=True)
-        zh_name = re.sub(r'[\u300a\u300b]', '', zh_name).strip()
-        cover_url = img_el.get("src") or img_el.get("data-src") if img_el else None
-        if cover_url and cover_url.startswith("//"):
-            cover_url = "https:" + cover_url
-        gamer_sn = None
-        if link_el:
-            m = re.search(r'sn=(\d+)', link_el.get("href",""))
-            if m: gamer_sn = m.group(1)
-        if zh_name and len(zh_name) > 2:
-            items.append({"zh_name": zh_name, "cover_url": cover_url,
-                          "gamer_sn": gamer_sn, "platform": platform})
+    seen_sn = set()
+    for lk in links:
+        m = re.search(r'sn=(\d+)', lk.get("href",""))
+        if not m: continue
+        sn = m.group(1)
+        if sn in seen_sn: continue
+        seen_sn.add(sn)
+
+        # 中文名：優先取 title 屬性，再取連結文字，再取父元素文字
+        zh_name = (lk.get("title") or lk.get_text(strip=True) or "").strip()
+        if not zh_name:
+            parent = lk.parent
+            if parent:
+                zh_name = parent.get_text(strip=True)[:80]
+        # 去掉《》書名號和多餘空白
+        zh_name = re.sub(r'[《》\u300a\u300b]', '', zh_name).strip()
+        if len(zh_name) < 2: continue
+
+        # 封面圖
+        img = lk.find("img") or (lk.parent.find("img") if lk.parent else None)
+        cover_url = None
+        if img:
+            cover_url = img.get("src") or img.get("data-src") or img.get("data-original")
+            if cover_url and cover_url.startswith("//"):
+                cover_url = "https:" + cover_url
+            if cover_url and not cover_url.startswith("http"):
+                cover_url = None
+
+        items.append({"zh_name": zh_name, "cover_url": cover_url,
+                      "gamer_sn": sn, "platform": platform})
     return items
 
 @app.post("/api/admin/crawl-gamer", dependencies=[Depends(verify_admin)])
@@ -397,6 +418,25 @@ def gamer_stats():
     ).fetchall()
     conn.close()
     return {"total": total, "by_platform": {r["platform"]: r["cnt"] for r in by_plat}}
+
+@app.get("/api/admin/gamer-debug")
+async def gamer_debug(c1: str = "27", c2: str = "1", pg: str = "1"):
+    """Debug: 看巴哈商城回傳的原始 HTML 結構"""
+    url = f"https://buy.gamer.com.tw/index_second_list.php?c1={c1}&c2={c2}&pg={pg}"
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            res = await client.get(url, headers=GAMER_HEADERS)
+        soup = BeautifulSoup(res.text, "html.parser")
+        links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
+        return {
+            "status": res.status_code,
+            "url": url,
+            "atm_links_count": len(links),
+            "sample_links": [{"href": lk.get("href",""),"text": lk.get_text(strip=True)[:60],"title": lk.get("title","")} for lk in links[:5]],
+            "html_snippet": res.text[1000:2000],
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # ── Config ────────────────────────────────────────────────────────────────
 @app.get("/api/nintendo-name")
