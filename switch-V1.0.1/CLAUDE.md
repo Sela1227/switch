@@ -59,23 +59,29 @@ npm run build 2>&1 | tail -10
 
 版本號要同時更新：`README.md`、`CLAUDE.md`（本檔）、`frontend/src/App.jsx` 內的 title 或 version 常數。
 
+### 命名規則（嚴格遵守）
+- zip 檔名：`switch-V1.X.X.zip`
+- zip 內資料夾名：`switch-V1.X.X/`
+- Artifact 預覽檔名：`switch-V1.X.X.jsx`
+
 ### 打包流程（每次，一定產出兩個檔案）
 ```bash
 cd /home/claude
+VER="V1.X.X"
 # 1. 更新版本號（README.md, CLAUDE.md）
 # 2. 語法驗證（見上方）
-# 3. 打包 Railway 部署版（Source）
-zip -r switch-vault-V1.X.X.zip switch-vault/ \
-  --exclude "switch-vault/frontend/node_modules/*" \
-  --exclude "switch-vault/frontend/dist/*" \
-  --exclude "switch-vault/__pycache__/*" \
-  --exclude "switch-vault/*.db"
-cp switch-vault-V1.X.X.zip /mnt/user-data/outputs/
-
-# 4. 產出 Artifact 預覽版（單一 .jsx，window.storage 版）
-cp /home/claude/SwitchVault-V1.X.X.jsx /mnt/user-data/outputs/
-
-# 5. present_files 同時給兩個檔案
+# 3. 重命名資料夾為版本名
+cp -r switch-vault switch-${VER}
+# 4. 打包
+zip -r switch-${VER}.zip switch-${VER}/ \
+  --exclude "switch-${VER}/frontend/node_modules/*" \
+  --exclude "switch-${VER}/frontend/dist/*" \
+  --exclude "switch-${VER}/__pycache__/*" \
+  --exclude "switch-${VER}/*.db"
+cp switch-${VER}.zip /mnt/user-data/outputs/
+# 5. 產出 Artifact 預覽版
+cp switch-vault/frontend/src/App.jsx /mnt/user-data/outputs/switch-${VER}.jsx
+# 6. present_files 同時給兩個檔案
 ```
 
 ---
@@ -192,7 +198,16 @@ def init_db():
 
 ---
 
-## 六、Railway 部署 Checklist
+## 六、部署位置
+
+| 項目 | 位址 |
+|------|------|
+| GitHub Repo | https://github.com/Sela1227/switch |
+| Railway URL | （部署後補上） |
+
+---
+
+## 七、Railway 部署 Checklist
 
 ```
 □ Railway Volume 掛載到 /data
