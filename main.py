@@ -425,7 +425,6 @@ async def find_acg_cover(sn: int, client: httpx.AsyncClient) -> str:
         except: pass
     return gamer_cover_url(sn, "JPG")  # fallback
 
-@app.get("/api/gamer-search")
 def clean_gamer_name(raw: str) -> str:
     """清理巴哈商城名稱，去除購物資訊"""
     import re as _re
