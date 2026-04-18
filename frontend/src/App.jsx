@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.4";
+const VERSION = "V1.13.7";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -223,18 +223,33 @@ export default function App() {
     if (!query.trim()) return;
     setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
     const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
-    // 同時打三個來源
-    const [catData, netData, gamerData] = await Promise.allSettled([
+
+    // Step 1：同時查 IGDB/RAWG（含 Claude 翻譯）和共用目錄
+    const [catData, netData] = await Promise.allSettled([
       fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`).then(r=>r.json()),
       smartSearch(query, claudeKey(), plat),
-      fetch(`/api/gamer-search?q=${encodeURIComponent(query)}`).then(r=>r.json()),
     ]);
     if (catData.status==="fulfilled") setCatalogResults(catData.value || []);
+    let translatedName = query;
     if (netData.status==="fulfilled") {
       setResults(netData.value.results || []);
-      if (netData.value.selected && netData.value.selected !== query) setTranslatedQ(netData.value.selected);
+      if (netData.value.selected && netData.value.selected !== query) {
+        translatedName = netData.value.selected;
+        setTranslatedQ(translatedName);
+      }
     } else { setSearchErr("搜尋失敗，請確認網路連線"); }
-    if (gamerData.status==="fulfilled" && gamerData.value?.zh_name) setGamerResult(gamerData.value);
+
+    // Step 2：搜巴哈 — 先用原始輸入，再用英文翻譯，哪個先找到用哪個
+    try {
+      const queries = [query];
+      if (translatedName !== query) queries.push(translatedName);
+      for (const q of queries) {
+        const gRes = await fetch(`/api/gamer-search?q=${encodeURIComponent(q)}`);
+        const gData = await gRes.json();
+        if (gData?.zh_name) { setGamerResult(gData); break; }
+      }
+    } catch {}
+
     setSearching(false);
   }
 
