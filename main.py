@@ -460,59 +460,76 @@ async def get_acg_sn_from_atm(sn: str, client: httpx.AsyncClient) -> str | None:
     return None
 
 async def gamer_search(q: str):
-    """搜尋巴哈商城，回傳多筆結果（含正確封面）"""
+    """搜尋巴哈 ACG 資料庫，回傳多筆結果（含封面）"""
     if not q.strip():
         return {"results": []}
     from urllib.parse import quote
     import asyncio
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            buy_url = f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"
-            res = await client.get(buy_url, headers=GAMER_HEADERS)
+
+            # 策略 1：acg.gamer.com.tw 直接搜遊戲資料庫
+            acg_url = f"https://acg.gamer.com.tw/search.php?kw={quote(q)}&page=1"
+            res = await client.get(acg_url, headers=GAMER_HEADERS)
             soup = BeautifulSoup(res.text, "html.parser")
+            acg_links = soup.find_all("a", href=lambda h: h and "acgDetail" in str(h))
 
-            atm_links = soup.find_all("a", href=lambda h: h and "atmItem" in str(h))
+            # 策略 2：若 acg 搜不到，用 buy.gamer.com.tw
+            if not acg_links:
+                buy_url = f"https://buy.gamer.com.tw/search.php?kw={quote(q)}"
+                res2 = await client.get(buy_url, headers=GAMER_HEADERS)
+                soup2 = BeautifulSoup(res2.text, "html.parser")
+                acg_links = soup2.find_all("a", href=lambda h: h and "acgDetail" in str(h))
+                # 若 buy 也沒 acgDetail，找 atmItem 連結
+                if not acg_links:
+                    atm_links = soup2.find_all("a", href=lambda h: h and "atmItem" in str(h))
+                    candidates = []
+                    seen = set()
+                    for lk in atm_links[:6]:
+                        m = re.search(r'sn=(\d+)', lk.get("href",""))
+                        if not m or m.group(1) in seen: continue
+                        seen.add(m.group(1))
+                        raw = lk.get("title","") or lk.get_text(strip=True)
+                        name = clean_gamer_name(raw)
+                        if name and len(name) > 1:
+                            candidates.append({"sn": m.group(1), "zh_name": name})
+
+                    async def resolve_atm(c):
+                        acg_sn = await get_acg_sn_from_atm(c["sn"], client)
+                        cover = await find_acg_cover(int(acg_sn), client) if acg_sn else ""
+                        return {"zh_name": c["zh_name"], "cover_url": cover, "gamer_sn": c["sn"]}
+
+                    results = await asyncio.gather(*[resolve_atm(c) for c in candidates])
+                    results = [r for r in results if r["zh_name"]]
+                    print(f"[gamer-search buy-fallback] q={q!r} → {len(results)}")
+                    return {"results": list(results)}
+                soup = soup2
+
+            # 從 acgDetail 連結取名稱 + ACG sn
             candidates = []
-            seen_sn = set()
+            seen = set()
+            for lk in acg_links[:8]:
+                m = re.search(r's=(\d+)', lk.get("href",""))
+                if not m or m.group(1) in seen: continue
+                seen.add(m.group(1))
+                acg_sn = m.group(1)
+                raw = lk.get("title","") or lk.get_text(strip=True)
+                # 父元素可能有更完整名稱
+                if not raw or len(raw) < 2:
+                    p = lk.parent
+                    if p: raw = p.get_text(separator=" ", strip=True)[:80]
+                name = clean_gamer_name(raw)
+                if name and len(name) > 1:
+                    candidates.append({"acg_sn": acg_sn, "zh_name": name})
 
-            for lk in atm_links[:10]:
-                m = re.search(r'sn=(\d+)', lk.get("href",""))
-                if not m: continue
-                sn = m.group(1)
-                if sn in seen_sn: continue
-                seen_sn.add(sn)
+            # 並行取封面
+            async def resolve_acg(c):
+                cover = await find_acg_cover(int(c["acg_sn"]), client)
+                return {"zh_name": c["zh_name"], "cover_url": cover, "gamer_sn": c["acg_sn"]}
 
-                # 名稱
-                raw = lk.get("title","").strip()
-                if not raw:
-                    for parent in [lk.parent, lk.parent.parent if lk.parent else None]:
-                        if parent:
-                            txt = parent.get_text(separator=" ", strip=True)
-                            if 2 < len(txt) < 120:
-                                raw = txt; break
-                if not raw:
-                    raw = lk.get_text(strip=True)
-                zh_name = clean_gamer_name(raw)
-                if not zh_name or len(zh_name) < 2: continue
-                candidates.append({"sn": sn, "zh_name": zh_name})
-
-            # 並行 fetch 前 6 個 atmItem 頁，取得 ACG sn → 封面 URL
-            async def resolve(c):
-                acg_sn = await get_acg_sn_from_atm(c["sn"], client)
-                cover_url = ""
-                if acg_sn:
-                    cover_url = await find_acg_cover(int(acg_sn), client)
-                return {
-                    "zh_name": c["zh_name"],
-                    "cover_url": cover_url,
-                    "gamer_sn": c["sn"],
-                    "acg_sn": acg_sn
-                }
-
-            results = await asyncio.gather(*[resolve(c) for c in candidates[:6]])
+            results = await asyncio.gather(*[resolve_acg(c) for c in candidates])
             results = [r for r in results if r["zh_name"]]
-
-            print(f"[gamer-search] q={q!r} → {len(results)} results")
+            print(f"[gamer-search acg] q={q!r} → {len(results)}")
             return {"results": list(results)}
 
     except Exception as e:
