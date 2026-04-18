@@ -166,6 +166,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 22 }}>🎮</span>
           <span style={{ fontWeight: 900, fontSize: 14, letterSpacing: 2, color: "#fff", textTransform: "uppercase" }}>SWITCH VAULT</span>
+          <span style={{ fontSize: 10, color: "#555", fontFamily: "monospace", marginLeft: 6 }}>V1.0.4</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* [AUTH-DISABLED] 測試階段隱藏管理員登入按鈕
