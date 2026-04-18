@@ -481,6 +481,7 @@ async def get_acg_detail(acg_sn: str, client: httpx.AsyncClient) -> dict:
     except: pass
     return None
 
+@app.get("/api/gamer-search")
 async def gamer_search(q: str):
     """搜尋巴哈 ACG 資料庫，回傳多筆結果"""
     if not q.strip():
