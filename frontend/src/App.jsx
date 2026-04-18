@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.22";
+const VERSION = "V1.13.23";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -684,6 +684,7 @@ export default function App() {
       body.owned_platform = editForm.ownedPlatform || null;
       await api(`/api/games/${id}`, { method: "PATCH", pin: adminPin(), body });
       await loadAll();
+      setModal(null);
     } catch { alert("儲存失敗"); }
     setSaving(false);
   }
