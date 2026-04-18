@@ -173,7 +173,13 @@ async def translate_query(request: Request):
                         "1. 若輸入已經是正確的英文官方遊戲名稱，原樣回傳，不要修改\n"
                         "2. 若輸入是中文、日文或其他語言，找出對應的官方英文名稱\n"
                         "3. 若輸入是暱稱或簡稱（如「薩爾達」、「瑪利歐賽車」），推斷最可能的正式系列作品名稱\n"
-                        "4. 只回傳遊戲英文名稱，不要加任何解釋、標點或換行"
+                        "4. 只回傳遊戲英文名稱，不要加任何解釋、標點或換行\n\n"
+                        "重要範例（請嚴格遵守這些翻譯）：\n"
+                        "勇者鬥惡龍 7 重製版 / 重置版 / Reimagined → Dragon Quest VII Reimagined\n"
+                        "瑪利歐賽車世界 → Mario Kart World\n"
+                        "薩爾達傳說王國之淚 → The Legend of Zelda Tears of the Kingdom\n"
+                        "寶可夢朱 / 紫 → Pokemon Scarlet / Pokemon Violet\n"
+                        "斯普拉遁 3 → Splatoon 3"
                     ),
                     "messages": [{"role": "user", "content": query}]
                 },

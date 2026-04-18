@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const VERSION = "V1.1.0";
+const VERSION = "V1.1.3";
 
 // ── API helpers ───────────────────────────────────────────────────────────
 async function api(path, { method = "GET", body, pin } = {}) {
