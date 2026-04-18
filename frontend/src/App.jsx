@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.7";
+const VERSION = "V1.13.8";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -222,51 +222,34 @@ export default function App() {
   async function doSearch() {
     if (!query.trim()) return;
     setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setTranslatedQ(""); setShowManualQ(false);
-    const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
-
-    // Step 1：同時查 IGDB/RAWG（含 Claude 翻譯）和共用目錄
-    const [catData, netData] = await Promise.allSettled([
-      fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`).then(r=>r.json()),
-      smartSearch(query, claudeKey(), plat),
-    ]);
-    if (catData.status==="fulfilled") setCatalogResults(catData.value || []);
-    let translatedName = query;
-    if (netData.status==="fulfilled") {
-      setResults(netData.value.results || []);
-      if (netData.value.selected && netData.value.selected !== query) {
-        translatedName = netData.value.selected;
-        setTranslatedQ(translatedName);
-      }
-    } else { setSearchErr("搜尋失敗，請確認網路連線"); }
-
-    // Step 2：搜巴哈 — 先用原始輸入，再用英文翻譯，哪個先找到用哪個
+    // 直接搜巴哈（中文輸入最直接）
     try {
-      const queries = [query];
-      if (translatedName !== query) queries.push(translatedName);
-      for (const q of queries) {
-        const gRes = await fetch(`/api/gamer-search?q=${encodeURIComponent(q)}`);
-        const gData = await gRes.json();
-        if (gData?.zh_name) { setGamerResult(gData); break; }
-      }
+      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setResults(data.results || []);
+      if (!data.results?.length) setSearchErr("巴哈商城找不到，試試其他關鍵字");
+    } catch { setSearchErr("搜尋失敗，請確認網路連線"); }
+    // 同時查共用目錄
+    try {
+      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(query)}&user_id=${myUserId()}`);
+      setCatalogResults(await catRes.json() || []);
     } catch {}
-
     setSearching(false);
   }
 
   async function doDirectSearch(customQ) {
     if (!customQ.trim()) return;
     setSearching(true); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setShowManualQ(false);
-    const plat = PLATFORMS.find(p => p.rawg === searchPlatform)?.rawg || "all";
-    const platParam = plat && plat !== "all" ? `&platform=${plat}` : "&platform=all";
-    const [catData, netData, gamerData] = await Promise.allSettled([
-      fetch(`/api/catalog?q=${encodeURIComponent(customQ)}&user_id=${myUserId()}`).then(r=>r.json()),
-      fetch(`/api/search?q=${encodeURIComponent(customQ)}${platParam}`).then(r=>r.json()),
-      fetch(`/api/gamer-search?q=${encodeURIComponent(customQ)}`).then(r=>r.json()),
-    ]);
-    if (catData.status==="fulfilled") setCatalogResults(catData.value || []);
-    if (netData.status==="fulfilled") { setResults(netData.value.results || []); setTranslatedQ(customQ !== query ? customQ : ""); }
-    else { setSearchErr("搜尋失敗"); }
-    if (gamerData.status==="fulfilled" && gamerData.value?.zh_name) setGamerResult(gamerData.value);
+    try {
+      const res = await fetch(`/api/gamer-search?q=${encodeURIComponent(customQ)}`);
+      const data = await res.json();
+      setResults(data.results || []);
+      if (!data.results?.length) setSearchErr("找不到結果");
+    } catch { setSearchErr("搜尋失敗"); }
+    try {
+      const catRes = await fetch(`/api/catalog?q=${encodeURIComponent(customQ)}&user_id=${myUserId()}`);
+      setCatalogResults(await catRes.json() || []);
+    } catch {}
     setSearching(false);
   }
 
@@ -389,6 +372,20 @@ export default function App() {
   function cleanGameName(name) {
     // 去除 [ Switch ] [ NS2 ] [ PS5 ] 等平台前綴
     return name.replace(/^\[\s*[^\]]+\s*\]\s*/g, '').trim();
+  }
+
+  async function addGameFromGamer(r) {
+    const name = cleanGameName(r.zh_name);
+    const id = `gamer_${r.gamer_sn || Date.now()}`;
+    try {
+      await api("/api/games", { method:"POST", pin:adminPin(), body:{
+        id, name, cover: r.cover_url || null,
+        genres: [], platforms: [], released: null,
+        owned_platform: null, user_id: myUserId(), base_game_id: id
+      }});
+      await loadAll();
+    } catch { alert("新增失敗"); }
+    closeAddGame();
   }
 
   async function addGame(r, ownedPlatform) {
@@ -1013,42 +1010,31 @@ export default function App() {
                 🌐 從網路搜尋
               </div>
             )}
+            {/* ── 巴哈商城搜尋結果 ── */}
+            {results.length > 0 && (
+              <div style={{ fontSize:10, color:"#f97316", fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", marginBottom:5 }}>
+                🏪 巴哈商城 ({results.length} 筆)
+              </div>
+            )}
             <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-              {results.map(r => {
-                const slugs = (r.platforms||[]).map(p=>p.platform.slug).filter(s=>MAJOR_SLUGS.includes(s));
-                const sel = resultPlatforms[r.id] || slugs[0];
-                return (
-                  <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1a24", borderRadius:10, padding:"8px 10px", border:"1px solid #252535" }}>
-                    <div style={{ width:52, height:52, flexShrink:0, borderRadius:6, overflow:"hidden", background:"#111" }}>
-                      {r.background_image
-                        ? <img src={r.background_image} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
-                        : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:2 }}>{r.name}</div>
-                      <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>
-                        {r.genres?.slice(0,2).map(g=>gZh(g.name)).join("・")}
-                        {r.released && <span> · {r.released.slice(0,4)}</span>}
-                      </div>
-                      {slugs.length > 0 && (
-                        <div style={{ display:"flex", gap:3 }}>
-                          {slugs.map(s => (
-                            <button key={s} onClick={() => setResultPlatforms(prev=>({...prev,[r.id]:s}))}
-                              style={{ background:sel===s?"#e60012":"#252535", border:"none", color:sel===s?"#fff":"#888",
-                                       padding:"2px 8px", borderRadius:10, fontSize:10, cursor:"pointer", fontWeight:sel===s?700:400 }}>
-                              {PLAT_SLUG_LABEL[s]||s}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <button onClick={() => addGame(r, sel)}
-                      style={{ background:"#e60012", border:"none", color:"#fff", borderRadius:8, padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0, minHeight:40 }}>＋</button>
+              {results.map((r, idx) => (
+                <div key={r.gamer_sn || idx} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1000", borderRadius:10, padding:"8px 10px", border:"1px solid #3a2000" }}>
+                  <div style={{ width:44, height:62, flexShrink:0, borderRadius:5, overflow:"hidden", background:"#111" }}>
+                    {r.cover_url
+                      ? <img src={r.cover_url} style={{ width:"100%", height:"100%", objectFit:"contain" }} alt="" />
+                      : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>}
                   </div>
-                );
-              })}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>
+                      {cleanGameName(r.zh_name)}
+                    </div>
+                    <div style={{ fontSize:10, color:"#f97316", marginTop:2 }}>巴哈商城</div>
+                  </div>
+                  <button onClick={() => addGameFromGamer(r)}
+                    style={{ background:"#f97316", border:"none", color:"#fff", borderRadius:8, padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0, minHeight:40 }}>＋</button>
+                </div>
+              ))}
             </div>
-            {results.length > 0 && <div style={{ marginTop:8, fontSize:11, color:"#444", textAlign:"center" }}>封面資料：IGDB / RAWG</div>}
           </>)}
 
           {addTab === "manual" && (<>
