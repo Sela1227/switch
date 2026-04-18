@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.3";
+const VERSION = "V1.10.4";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -411,13 +411,26 @@ export default function App() {
     <div style={S.app}>
       {/* Header */}
       <header style={S.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 22 }}>🎮</span>
-          <span style={{ fontWeight: 900, fontSize: 15, letterSpacing: 2, color: "#fff", textTransform: "uppercase" }}>SWITCH VAULT</span>
-          <span style={{ fontSize: 11, color: "#444", fontFamily: "monospace" }}>{VERSION}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <span style={{ fontSize:20 }}>🎮</span>
+          <span style={{ fontWeight:900, fontSize:14, letterSpacing:2, color:"#fff", textTransform:"uppercase" }}>SWITCH VAULT</span>
+          <span style={{ fontSize:10, color:"#444", fontFamily:"monospace" }}>{VERSION}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button style={S.iconBtn} onClick={loadAll}>↻</button>
+        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+          {/* 格大小 */}
+          <div style={{ display:"flex", background:"#1a1a24", borderRadius:7, overflow:"hidden", border:"1px solid #2a2a38" }}>
+            {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
+              <button key={s} onClick={() => setGrid(s)}
+                style={{ background:gridSize===s?"#e60012":"transparent", border:"none",
+                         color:gridSize===s?"#fff":"#555", padding:"5px 8px", fontSize:12,
+                         cursor:"pointer", fontFamily:"inherit", minHeight:32, touchAction:"manipulation" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {isAdmin && (
+            <button style={{ ...S.addBtn, padding:"5px 12px", fontSize:13 }} onClick={() => setModal("addGame")}>＋</button>
+          )}
           <button style={S.iconBtn} onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
         </div>
       </header>
@@ -426,32 +439,12 @@ export default function App() {
       <main style={S.main}>
         {tab === "collection" && (
           <div>
-            {/* Row 1：篩選 + 格大小 + 新增 */}
-            <div style={{ padding: "12px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ display: "flex", gap: 6, overflowX: "auto", flex: 1 }}>
+            {/* Row 1：狀態篩選 + 排序 */}
+            <div style={{ padding:"8px 14px 0", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+              <div style={{ display:"flex", gap:5 }}>
                 {[["all","全部"],["available","可借"],["borrowed","借出中"]].map(([f,l]) => (
-                  <button key={f} style={f===collFilter ? S.filterActive : S.filterBtn} onClick={() => setCollFilter(f)}>{l}</button>
-                ))}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                <div style={{ display: "flex", background: "#1a1a24", borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a38" }}>
-                  {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
-                    <button key={s} onClick={() => setGrid(s)}
-                      style={{ background: gridSize===s?"#e60012":"transparent", border:"none", color: gridSize===s?"#fff":"#666", padding:"6px 11px", fontSize:13, cursor:"pointer", fontFamily:"inherit", minHeight:34 }}>
-                      {l}
-                    </button>
-                  ))}
-                </div>
-                {isAdmin && <button style={S.addBtn} onClick={() => setModal("addGame")}>＋ 新增</button>}
-              </div>
-            </div>
-
-            {/* Row 2：平台 + 排序 */}
-            <div style={{ padding: "8px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ display: "flex", gap: 5, overflowX: "auto", flex: 1 }}>
-                {PLATFORMS.map(p => (
-                  <button key={p.id} style={wallPlatform===p.id ? S.filterActive : S.filterBtn}
-                    onClick={() => setWallPlat(p.id)}>{p.label}</button>
+                  <button key={f} style={f===collFilter ? S.filterActive : S.filterBtn}
+                    onClick={() => setCollFilter(f)}>{l}</button>
                 ))}
               </div>
               <select style={S.sortSelect} value={sortBy} onChange={e => setSort(e.target.value)}>
@@ -459,7 +452,15 @@ export default function App() {
               </select>
             </div>
 
-            <div style={{ padding: "5px 16px 10px", fontSize: 12, color: "#555" }}>共 {filteredGames.length} 款</div>
+            {/* Row 2：平台篩選（全寬可橫滑）*/}
+            <div style={{ padding:"6px 14px 0", overflowX:"auto", display:"flex", gap:5, scrollbarWidth:"none" }}>
+              {PLATFORMS.map(p => (
+                <button key={p.id} style={wallPlatform===p.id ? S.filterActive : S.filterBtn}
+                  onClick={() => setWallPlat(p.id)}>{p.label}</button>
+              ))}
+            </div>
+
+            <div style={{ padding:"4px 14px 8px", fontSize:11, color:"#555" }}>共 {filteredGames.length} 款</div>
 
             {filteredGames.length === 0
               ? <Empty icon="🎮" text="點擊「＋ 新增」加入第一款遊戲" />
@@ -888,13 +889,15 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
           ? <img src={game.cover} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} alt={game.name} />
           : <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:micro?14:22, color:"#2a2a3a" }}>🎮</div>
         }
-        {/* 左上：編號 */}
+        {/* 左上：編號 - 正方形藍底白框白字 */}
         {game.number != null && game.number !== "" && (
           <div style={{
             position:"absolute", top:micro?2:4, left:micro?2:4, zIndex:2,
-            background:"rgba(0,0,0,0.78)", border:"1px solid rgba(255,255,255,0.22)",
-            color:"#fff", fontSize:micro?8:11, padding:micro?"1px 4px":"3px 8px",
-            borderRadius:micro?3:5, fontFamily:"monospace", fontWeight:900, letterSpacing:0.5,
+            background:"#1d4ed8", border:"1.5px solid rgba(255,255,255,0.8)",
+            color:"#fff", fontSize:micro?8:11, padding:micro?"2px 4px":"3px 8px",
+            borderRadius:micro?3:4,
+            fontFamily:"monospace", fontWeight:900, letterSpacing:0.5,
+            minWidth: micro?14:20, textAlign:"center",
           }}>{game.number}</div>
         )}
         {/* 右上：好玩度 */}
