@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.10.4";
+const VERSION = "V1.10.5";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -411,27 +411,29 @@ export default function App() {
     <div style={S.app}>
       {/* Header */}
       <header style={S.header}>
-        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <span style={{ fontSize:20 }}>🎮</span>
-          <span style={{ fontWeight:900, fontSize:14, letterSpacing:2, color:"#fff", textTransform:"uppercase" }}>SWITCH VAULT</span>
-          <span style={{ fontSize:10, color:"#444", fontFamily:"monospace" }}>{VERSION}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:5, minWidth:0, overflow:"hidden" }}>
+          <span style={{ fontSize:18, flexShrink:0 }}>🎮</span>
+          <span style={{ fontWeight:900, fontSize:13, letterSpacing:1, color:"#fff", textTransform:"uppercase", whiteSpace:"nowrap" }}>SWITCH VAULT</span>
+          <span style={{ fontSize:9, color:"#444", fontFamily:"monospace", flexShrink:0 }}>{VERSION}</span>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
           {/* 格大小 */}
-          <div style={{ display:"flex", background:"#1a1a24", borderRadius:7, overflow:"hidden", border:"1px solid #2a2a38" }}>
+          <div style={{ display:"flex", background:"#1a1a24", borderRadius:6, overflow:"hidden", border:"1px solid #2a2a38" }}>
             {[["large","大"],["medium","中"],["small","小"],["mini","微"]].map(([s,l]) => (
               <button key={s} onClick={() => setGrid(s)}
                 style={{ background:gridSize===s?"#e60012":"transparent", border:"none",
-                         color:gridSize===s?"#fff":"#555", padding:"5px 8px", fontSize:12,
-                         cursor:"pointer", fontFamily:"inherit", minHeight:32, touchAction:"manipulation" }}>
+                         color:gridSize===s?"#fff":"#555", padding:"5px 7px", fontSize:12,
+                         cursor:"pointer", fontFamily:"inherit", minHeight:30, touchAction:"manipulation" }}>
                 {l}
               </button>
             ))}
           </div>
           {isAdmin && (
-            <button style={{ ...S.addBtn, padding:"5px 12px", fontSize:13 }} onClick={() => setModal("addGame")}>＋</button>
+            <button style={{ background:"#e60012", border:"none", color:"#fff", padding:"5px 10px", borderRadius:6, fontSize:14, cursor:"pointer", fontWeight:900, minHeight:30, touchAction:"manipulation" }}
+              onClick={() => setModal("addGame")}>＋</button>
           )}
-          <button style={S.iconBtn} onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
+          <button style={{ ...S.iconBtn, fontSize:18, minHeight:30, minWidth:30, padding:"4px" }}
+            onClick={() => { setSettingsForm({ claudeKey: claudeKey() }); setModal("settings"); }}>⚙</button>
         </div>
       </header>
 
@@ -894,47 +896,60 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
           <div style={{
             position:"absolute", top:micro?2:4, left:micro?2:4, zIndex:2,
             background:"#1d4ed8", border:"1.5px solid rgba(255,255,255,0.8)",
-            color:"#fff", fontSize:micro?8:11, padding:micro?"2px 4px":"3px 8px",
+        {/* 左上：編號 - 正方形藍底 */}
+        {game.number != null && game.number !== "" && (
+          <div style={{
+            position:"absolute", top:micro?2:4, left:micro?2:4, zIndex:2,
+            background:"#1d4ed8", border:"1.5px solid rgba(255,255,255,0.85)",
+            color:"#fff",
+            minWidth: micro?16:22, height: micro?16:22,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            padding: micro?"0 3px":"0 5px",
             borderRadius:micro?3:4,
-            fontFamily:"monospace", fontWeight:900, letterSpacing:0.5,
-            minWidth: micro?14:20, textAlign:"center",
+            fontFamily:"monospace", fontWeight:900,
+            fontSize:micro?8:10, letterSpacing:0, lineHeight:1,
           }}>{game.number}</div>
         )}
-        {/* 右上：好玩度 */}
+        {/* 右上：好玩度 - 透明金框 */}
         {game.funRating != null && (
           <div style={{
             position:"absolute", top:micro?2:4, right:micro?2:4, zIndex:2,
-            background:"rgba(0,0,0,0.35)", border:"1px solid rgba(251,191,36,0.55)",
-            color:"#fbbf24", fontSize:micro?8:11, padding:micro?"1px 4px":"3px 8px",
-            borderRadius:micro?3:5, fontWeight:900,
+            background:"rgba(0,0,0,0.38)", border:"1px solid rgba(251,191,36,0.6)",
+            color:"#fbbf24",
+            minWidth: micro?16:22, height: micro?16:22,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            padding: micro?"0 2px":"0 4px",
+            borderRadius:micro?3:4,
+            fontWeight:900, fontSize:micro?8:10, lineHeight:1,
           }}>★{game.funRating}</div>
         )}
-        {/* 借出/逾期：好玩度下方 */}
+        {/* 借出/逾期 */}
         {borrow && (
           <div style={{
             position:"absolute",
-            top: micro ? (game.funRating!=null?14:2) : (game.funRating!=null?30:4),
+            top: micro ? (game.funRating!=null?20:2) : (game.funRating!=null?30:4),
             right:micro?2:4, zIndex:2,
             background:overdue?"#e60012":"#c47d00", color:"#fff",
-            fontSize:micro?7:9, padding:micro?"1px 4px":"2px 6px",
-            borderRadius:4, fontWeight:700,
+            fontSize:micro?7:9, padding:micro?"1px 3px":"2px 5px",
+            borderRadius:3, fontWeight:700, lineHeight:1.3,
           }}>{overdue?"逾期":"借出"}</div>
         )}
       </div>
 
-      {/* 資訊區 */}
+      {/* 資訊區 - 比例縮放 */}
       {!micro && (
-        <div style={{ background:"#0e0e1a", borderTop:`1px solid ${platColor}33`, padding:small?"3px 6px":"5px 8px", flexShrink:0 }}>
+        <div style={{ background:"#0e0e1a", borderTop:`1px solid ${platColor}44`, padding: small?"3px 5px":"5px 8px", flexShrink:0 }}>
+          {/* 遊戲名 */}
           <div style={{
-            fontSize:small?9:11, fontWeight:700, color:"#ddd", lineHeight:1.35,
+            fontSize: small?8:medium?10:12, fontWeight:700, color:"#ddd", lineHeight:1.3,
             overflow:"hidden", display:"-webkit-box",
-            WebkitLineClamp:small?1:2, WebkitBoxOrient:"vertical",
+            WebkitLineClamp: small?1:2, WebkitBoxOrient:"vertical",
+            marginBottom: small?1:2,
           }}>{game.name}</div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:2 }}>
-            <span style={{ fontSize:small?8:10, color:platColor, fontWeight:700 }}>
-              {ownedLabel || "—"}
-            </span>
-          </div>
+          {/* 平台 */}
+          <span style={{ fontSize: small?7:9, color:platColor, fontWeight:700 }}>
+            {ownedLabel || "—"}
+          </span>
         </div>
       )}
     </div>
