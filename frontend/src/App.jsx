@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.9.2";
+const VERSION = "V1.9.3";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -517,54 +517,51 @@ export default function App() {
 
           {searchErr && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 8 }}>{searchErr}</div>}
 
-          {/* 搜尋結果：卡片式 */}
-          <div style={{ maxHeight: "52vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* 搜尋結果：緊湊列表 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {results.map(r => {
               const slugs = (r.platforms || []).map(p => p.platform.slug).filter(s => MAJOR_SLUGS.includes(s));
               const sel = resultPlatforms[r.id] || slugs[0];
-              const selLabel = PLAT_SLUG_LABEL[sel] || sel;
               return (
-                <div key={r.id} style={S.resultCard}>
-                  <div style={{ display: "flex" }}>
-                    {/* 封面 2:3（盒裝封面） */}
-                    <div style={{ width: 88, flexShrink: 0, background: "#111", borderRadius: "10px 0 0 10px", overflow: "hidden", display: "flex", alignItems: "stretch" }}>
-                      {r.background_image
-                        ? <img src={r.background_image} style={{ width: "100%", objectFit: "cover", display: "block" }} alt="" />
-                        : <div style={{ width: "100%", minHeight: 124, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: "#333" }}>🎮</div>
-                      }
-                    </div>
-                    {/* 資訊 */}
-                    <div style={{ flex: 1, padding: "10px 12px", minWidth: 0, display: "flex", flexDirection: "column" }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "#e2e2e8", marginBottom: 3, lineHeight: 1.3 }}>{r.name}</div>
-                      <div style={{ fontSize: 10, color: "#666", marginBottom: 6 }}>
-                        {r.genres?.slice(0,2).map(g => g.name).join(" · ")}
-                        {r.released && <span style={{ color: "#555" }}> · {r.released?.slice(0,4)}</span>}
-                      </div>
-                      {/* 版本選擇 */}
-                      {slugs.length > 0 && (
-                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8, flex: 1 }}>
-                          {slugs.map(s => (
-                            <button key={s}
-                              style={{ background: sel===s?"#e60012":"#2a2a38", border: "none", color: sel===s?"#fff":"#aaa",
-                                       padding: "3px 9px", borderRadius: 12, fontSize: 11, cursor: "pointer",
-                                       fontWeight: sel===s?700:400, minHeight: 26, touchAction: "manipulation" }}
-                              onClick={() => setResultPlatforms(prev => ({...prev, [r.id]: s}))}>
-                              {PLAT_SLUG_LABEL[s] || s}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <button style={{ ...S.redBtn, fontSize: 12, padding: "8px", minHeight: 36 }}
-                        onClick={() => addGame(r, sel)}>
-                        ＋ 加入{sel ? ` (${selLabel})` : ""}
-                      </button>
-                    </div>
+                <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#1a1a24", borderRadius:10, padding:"8px 10px", border:"1px solid #252535" }}>
+                  {/* 封面縮圖 */}
+                  <div style={{ width:52, height:52, flexShrink:0, borderRadius:6, overflow:"hidden", background:"#111" }}>
+                    {r.background_image
+                      ? <img src={r.background_image} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} alt="" />
+                      : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:"#333", fontSize:20 }}>🎮</div>
+                    }
                   </div>
+                  {/* 資訊 */}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:"#e2e2e8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:2 }}>{r.name}</div>
+                    <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>
+                      {r.genres?.slice(0,2).map(g => gZh(g.name)).join("・")}
+                      {r.released && <span> · {r.released.slice(0,4)}</span>}
+                    </div>
+                    {/* 平台選擇：緊湊小 chip */}
+                    {slugs.length > 0 && (
+                      <div style={{ display:"flex", gap:3 }}>
+                        {slugs.map(s => (
+                          <button key={s} onClick={() => setResultPlatforms(prev=>({...prev,[r.id]:s}))}
+                            style={{ background: sel===s?"#e60012":"#252535", border:"none", color: sel===s?"#fff":"#888",
+                                     padding:"2px 8px", borderRadius:10, fontSize:10, cursor:"pointer",
+                                     fontWeight: sel===s?700:400, touchAction:"manipulation" }}>
+                            {PLAT_SLUG_LABEL[s]||s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* 加入按鈕 */}
+                  <button onClick={() => addGame(r, sel)}
+                    style={{ background:"#e60012", border:"none", color:"#fff", borderRadius:8,
+                             padding:"8px 12px", fontSize:13, fontWeight:700, cursor:"pointer",
+                             flexShrink:0, touchAction:"manipulation", minHeight:40 }}>＋</button>
                 </div>
               );
             })}
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#444", textAlign: "center" }}>封面資料：IGDB / RAWG</div>
+          <div style={{ marginTop:8, fontSize:11, color:"#444", textAlign:"center" }}>封面資料：IGDB / RAWG</div>
         </Modal>
       )}
 
@@ -594,20 +591,25 @@ export default function App() {
                   onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
               </div>
 
-              {/* 我的平台版本 */}
+              {/* 我的平台版本：緊湊 */}
               <div>
                 <div style={S.fieldLabel}>我的版本</div>
-                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                  {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => (
-                    <button key={s}
-                      style={{ background: editForm.ownedPlatform===s?"#e60012":"#2a2a38", border:"none",
-                               color: editForm.ownedPlatform===s?"#fff":"#888",
-                               padding:"5px 12px", borderRadius:16, fontSize:12, cursor:"pointer",
-                               fontWeight: editForm.ownedPlatform===s?700:400, minHeight:32, touchAction:"manipulation" }}
-                      onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s ? "" : s }))}>
-                      {PLAT_SLUG_LABEL[s] || s}
-                    </button>
-                  ))}
+                <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                  {(gameSlugs.length > 0 ? gameSlugs : MAJOR_SLUGS).map(s => {
+                    const pc = { "nintendo-switch":"#e60012","playstation5":"#003791","playstation4":"#003791","xbox-series-x":"#107c10","xbox-series-s":"#107c10","xbox-one":"#107c10","pc":"#1b6ac9" }[s] || "#444";
+                    const isSelected = editForm.ownedPlatform === s;
+                    return (
+                      <button key={s}
+                        style={{ background: isSelected ? pc : "#252535",
+                                 border: `1px solid ${isSelected ? pc : "#333"}`,
+                                 color: isSelected ? "#fff" : "#777",
+                                 padding:"4px 12px", borderRadius:14, fontSize:12, cursor:"pointer",
+                                 fontWeight: isSelected?700:400, touchAction:"manipulation", minHeight:30 }}
+                        onClick={() => setEditForm(f => ({ ...f, ownedPlatform: f.ownedPlatform===s ? "" : s }))}>
+                        {PLAT_SLUG_LABEL[s]||s}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -786,7 +788,7 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
                           fontSize: micro?14:small?18:26, color:"#2a2a3a" }}>🎮</div>
         }
 
-        {/* 借出/逾期 badge */}
+        {/* 借出/逾期 badge - 右上 */}
         {borrow && (
           <div style={{
             position:"absolute", top: micro?2:4, right: micro?2:4,
@@ -798,14 +800,17 @@ function GameCard({ game, borrow, overdue, onClick, cols }) {
           </div>
         )}
 
-        {/* 編號 badge */}
+        {/* 編號 - 左下角，優雅設計 */}
         {game.number != null && (
           <div style={{
-            position:"absolute", top: micro?2:4, left: micro?2:4,
-            background:"rgba(0,0,0,0.85)", color:"#aaa",
-            fontSize: micro?7:9, padding: micro?"1px 3px":"2px 5px",
-            borderRadius: 3, fontFamily:"monospace", fontWeight:700
-          }}>#{game.number}</div>
+            position:"absolute", bottom: micro?2:4, left: micro?2:4,
+            background:"rgba(0,0,0,0.7)", backdropFilter:"blur(4px)",
+            color:"#fff", fontSize: micro?7:10,
+            padding: micro?"1px 3px":"2px 7px",
+            borderRadius: micro?3:5,
+            fontFamily:"monospace", fontWeight:900,
+            letterSpacing:0.5, lineHeight:1.4
+          }}>{game.number}</div>
         )}
 
         {/* 底部漸層 + 遊戲名（非微格才顯示）*/}
