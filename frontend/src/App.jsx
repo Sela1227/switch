@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const VERSION = "V1.13.24";
+const VERSION = "V1.13.25";
 
 // ── 平台定義 ─────────────────────────────────────────────────────────────
 const PLATFORMS = [
@@ -492,7 +492,7 @@ export default function App() {
       }});
       await loadAll();
       setBorrowForm({ name: "", borrowDate: today(), expectedReturn: "" });
-      setModal(null);
+      setModal("gameDetail");
     } catch { alert("新增失敗"); }
   }
 
@@ -500,7 +500,7 @@ export default function App() {
     if (!selBorrow) return;
     try {
       await api(`/api/borrows/${selBorrow.id}/return`, { method: "PATCH", pin: adminPin() });
-      await loadAll(); setModal(null);
+      await loadAll(); setModal(null); // 留在原來的頁籤
     } catch { alert("歸還失敗"); }
   }
 
@@ -742,7 +742,7 @@ export default function App() {
           </div>
           {isAdmin && (
             <button style={{ background:"#e60012", border:"none", color:"#fff", padding:"5px 10px", borderRadius:6, fontSize:14, cursor:"pointer", fontWeight:900, minHeight:30, touchAction:"manipulation" }}
-              onClick={() => setModal("addGame")}>＋</button>
+              onClick={() => { setQuery(""); setResults([]); setCatalogResults([]); setGamerResult(null); setSearchErr(""); setTranslatedQ(""); setAddTab("search"); setModal("addGame"); }}>＋</button>
           )}
           <button style={S.iconBtn} onClick={async () => {
             const ck = claudeKey();
@@ -1156,7 +1156,7 @@ export default function App() {
         const g    = games.find(x => x.id === selGame.id) || selGame;
         const gameSlugs = (g.platforms || []).filter(s => MAJOR_SLUGS.includes(s));
         return (
-          <Modal title="遊戲資訊" onClose={() => { setModal(null); setShowCoverPicker(false); setCoverResults([]); }}>
+          <Modal title="遊戲資訊" onClose={() => { setModal(null); setShowCoverPicker(false); setCoverResults([]); setShowAllHist(false); setCoverUrlInput(""); }}>
             {/* 封面 + 更換按鈕 */}
             <div style={{ display:"flex", gap:12, marginBottom:12, alignItems:"flex-start" }}>
               <div style={{ position:"relative", flexShrink:0 }}>
@@ -1268,7 +1268,7 @@ export default function App() {
                 )}
                 {!ab && isAdmin && (
                   <button style={{ flex:1, background:"transparent", border:"1px solid #3a1a1a", color:"#f87171", padding:"9px", borderRadius:10, fontSize:13, cursor:"pointer", touchAction:"manipulation" }}
-                    onClick={() => deleteGame(g.id)}>
+                    onClick={() => { if (window.confirm(`確定刪除《${g.name}》？\n此操作無法復原`)) deleteGame(g.id); }}>
                     🗑
                   </button>
                 )}
@@ -1325,7 +1325,7 @@ export default function App() {
 
       {/* 換封面 Modal */}
       {showCoverPicker && selGame && (
-        <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); setCommunityCovers([]); }}>
+        <Modal title="更換封面" onClose={() => { setShowCoverPicker(false); setCoverResults([]); setCommunityCovers([]); setCoverUrlInput(""); }}>
           {/* Tab 選擇 */}
           <div style={{ display:"flex", gap:0, marginBottom:12, background:"#1a1a24", borderRadius:8, padding:3 }}>
             {[["search","🔍 搜尋"],["community",`👥 社群${communityCovers.length>0?` (${communityCovers.length})`:""}`],["url","🔗 網址"]].map(([t,l]) => (
