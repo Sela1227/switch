@@ -1,282 +1,183 @@
-# CLAUDE.md — Switch Vault 開發規範
+# CLAUDE.md — Switch Vault（SELA 遊戲管理租借系統）
 
-> 版本：V1.0.0  
-> 改編自 DEV-GUIDELINES.md，保留適用條目，移除單一 HTML 專案特有內容。
-
----
-
-## 零、開發方向與交付規則（最優先）
-
-### 開發基準
-- **唯一開發方向：Railway 部署版**
-- Claude Artifact 版（`window.storage`）僅為歷史原型，不再維護
-- 所有新功能、Bug fix 一律在 Railway 版本上進行
-
-### 打包交付規則（強制）
-每次提供下載時，**一定同時給兩個檔案**：
-
-| 檔案 | 內容 | 用途 |
-|------|------|------|
-| `switch-vault-V1.X.X.zip` | 完整專案原始碼（含 Dockerfile、CLAUDE.md） | 推 GitHub → Railway 部署 |
-| `SwitchVault-V1.X.X.jsx` | 轉換後的單檔 Artifact 版（`window.storage`） | 在 Claude 介面快速預覽 UI |
-
-> **原則**：部署檔讓你上線，Source 讓你繼續開發。兩者缺一不可。
-
-### Artifact 預覽版說明
-- Artifact 版（`.jsx`）僅供 Claude 介面內快速預覽 UI，**不做本地開發**
-- 開發一律在 Railway 版進行，改完 → 打包 → 推 GitHub → Railway 自動重新部署
-- Artifact 版由 Claude 在打包時從 Railway 版轉換產出，不手動維護
+> **這份是給下次 Claude 看的工作上下文，不是文件。**
+> 判斷標準只有一個：下次 Claude 讀完，能不能直接動手？
+> 每升一版至少更新三處：踩過的坑、版本歷程、下版候選工作。
 
 ---
 
-## 一、Claude 工作方式
+## 〇、當前狀態
 
-### 每次修改前必做
-1. **先讀**要修改的檔案，確認當前狀態（不依賴對話記憶）
-2. 確認修改目標字串確實存在於正確位置
-3. 重大修改前備份：`cp frontend/src/App.jsx /tmp/App.backup.jsx`
+- **版本：** V1.14.0
+- **狀態：** 上線中（Railway）
+- **一句話定位：** 實體遊戲卡帶收藏與借出管理，整合巴哈商城中文名稱與封面，支援多用戶公開收藏與跨用戶借用申請
+- **技術棧：** Python 3.11 + FastAPI + SQLite / React 18 + Vite / 部署 Railway Hobby Plan
+- **入口點：** `main.py`（FastAPI app），前端由 `frontend/src/App.jsx` 組成
+- **線上網址：** https://switch-production-13a3.up.railway.app
+- **GitHub：** https://github.com/Sela1227/switch
 
-### 修改後必做（後端）
+### Kit 衝突仲裁（V1.14.0 首次對齊 SELA Starter Kit）
+- **配色保留現有方案**（`#e60012` 主紅 / `#f97316` 巴哈橘 / `#1d4ed8` 編號藍 / 深色背景），已有 10+ 版用戶驗證，不改色
+- SELA Logo 已嵌入 header（base64 inline，於 `SELA_LOGO` 常數）；SVG 原始檔另放 `frontend/public/favicon/`
+- 版本號 V1.13.x 的 `c` 超過 9 未進位（歷史遺留），V1.14.0 起從這個版本號繼續，之後遵守 Kit 三位數進位規則
+
+---
+
+## 一、技術棧決策
+
+| 選擇 | 替代品 | 選這個的理由 |
+|------|--------|------------|
+| FastAPI + SQLite | Django / PostgreSQL | 輕量單人用、Railway Volume 持久化、部署簡單 |
+| React + Vite | 純 HTML | 動態 UI 複雜度高（modal、即時搜尋、多 tab）|
+| 單一 Railway service | 前後端分離 | 省費用（$1-2/月），靜態由 FastAPI serve |
+| BeautifulSoup 爬蟲 | Playwright / Selenium | 巴哈 HTML 可靜態解析，不需 JS 渲染 |
+| base64 封面直存 DB | S3 / Cloudflare R2 | 遊戲數量可控（< 5000 筆），URL 類封面幾乎不佔空間 |
+
+---
+
+## 二、業務對映表
+
+| 業務概念 | 程式實作 | 改這個動哪 |
+|---------|---------|----------|
+| 遊戲 | `games` 表 + `GameIn` model | `main.py` init_db + GameIn + list_games 回傳 dict |
+| 用戶 | `users` 表（id, name, is_public） | `main.py` + `App.jsx` myUserId() / loadAll() |
+| 借出記錄 | `borrows` 表 | `main.py` borrows CRUD + `App.jsx` BorrowRow |
+| 跨用戶借用申請 | `borrow_requests` 表 | `main.py` borrow-requests API + `App.jsx` 探索頁籤 |
+| 巴哈遊戲名稱庫 | `game_name_map` 表 + `gamer_search` API | `main.py` 爬蟲 + `App.jsx` translateGameName |
+| 社群封面 | `game_covers` 表 | `main.py` game-covers API + `App.jsx` 換封面 modal |
+
+**改業務欄位時同步三處：**
+1. `init_db()` 的 `CREATE TABLE` + `ALTER TABLE` 遷移
+2. Pydantic Model（`GameIn` / `BorrowIn` 等）
+3. `App.jsx` 的 POST body 和 state 對映（camelCase ↔ snake_case）
+
+---
+
+## 三、關鍵檔案路徑
+
+| 想改什麼 | 動哪些檔 |
+|---------|---------|
+| DB schema / 欄位 | `main.py` → `init_db()` |
+| API 路由 | `main.py` → `@app.get/post/patch/delete` |
+| 搜尋邏輯（巴哈） | `main.py` → `gamer_search()` + `get_acg_detail()` |
+| 翻譯退回流程 | `App.jsx` → `translateGameName()` |
+| 卡片 UI | `App.jsx` → `function GameCard()` |
+| 詳情 Modal | `App.jsx` → `{modal === "gameDetail" && ...}` |
+| 換封面 Modal | `App.jsx` → `{showCoverPicker && selGame && ...}` |
+| 設定頁 | `App.jsx` → `{modal === "settings" && ...}` + `GamerCrawlSection` |
+| Header logo / 版本 | `App.jsx` → `SELA_LOGO` 常數 + `VERSION` 常數 |
+| 底部 Nav | `App.jsx` → `<nav>` + `NavItem` |
+| 探索頁籤 | `App.jsx` → `{tab === "explore" && ...}` |
+
+---
+
+## 四、踩過的坑（編號累積，永不重排）
+
+**#1. @app.get 裝飾器被 str_replace 移位**
+- 症狀：`GET /api/gamer-search?q=` 回傳 422 Unprocessable Entity
+- 原因：str_replace 範圍太大，裝飾器從 `gamer_search` 移位到 `clean_gamer_name`，FastAPI 把清理函數當路由
+- 做法：`grep -n "@app.get.*路由名" main.py` 確認裝飾器位置；str_replace 前先 view 確認完整邊界
+
+**#2. Railway sandbox 封網 ≠ 正式環境也封**
+- 症狀：本機爬蟲測試全部 403，誤以為巴哈封鎖了 Railway
+- 原因：Claude bash_tool sandbox 有網路白名單，Railway 正式服務不受此限制
+- 做法：加 `/api/admin/gamer-debug` endpoint，部署後直接打 URL 確認
+
+**#3. atmItem sn ≠ ACG sn（封面用不同數字）**
+- 症狀：封面 URL 組出來的圖片是錯的
+- 原因：`buy.gamer.com.tw/atmItem.php?sn=38966` 是商品編號；CDN 封面用 `acg.gamer.com.tw/acgDetail.php?s=142248`，兩個完全不同
+- 做法：fetch atmItem 頁找 acgDetail 連結，取真正的 ACG sn 再組 CDN URL
+
+**#4. 巴哈封面副檔名 JPG/PNG 不固定**
+- 症狀：部分遊戲封面破圖
+- 原因：CDN URL 格式固定但副檔名沒規律，`find_acg_cover()` 需兩種都試
+- 做法：依序 HEAD request 試 `.JPG` → `.PNG`，200 就用
+
+**#5. asyncio.gather 在 FastAPI async endpoint 內不穩定**
+- 症狀：搜尋結果有時空白有時正常
+- 原因：`gather` 包 async lambda 在 FastAPI event loop 下行為不確定（對應跨專案坑 #25）
+- 做法：改普通 for loop + await，不用 gather；加詳細 print log 確認每步
+
+**#6. acg / buy / search 三個子站用途不同（預埋）**
+- 症狀：用 `search.gamer.com.tw` 爬不到結果（Google CSE 渲染，httpx 拿不到 JS 渲染後資料）
+- 原因：`search.gamer.com.tw` 是 Google Custom Search；`acg.gamer.com.tw/search.php?keyword=` 才是直接可爬的作品資料庫
+- 做法：永遠用 `acg.gamer.com.tw/search.php?keyword=`，`buy.gamer.com.tw` 作退路
+
+**#7. DB 欄位新增忘了同步三處（預埋）**
+- 症狀：SQLite `column count mismatch` 或 API 回傳少欄位
+- 原因：`init_db` 加欄位、但 INSERT 語句欄位數或 Pydantic model 沒同步
+- 做法：每次加欄位，`init_db` + model + endpoint 三處同時更新
+
+---
+
+## 五、煙霧測試
+
 ```bash
-# Python 語法檢查
-python -m py_compile main.py && echo "OK"
-```
+# 後端語法檢查
+python -m py_compile main.py
 
-### 修改後必做（前端）
-```bash
-# JS/JSX 語法檢查（需 node）
-cd frontend && node --input-type=module < src/App.jsx 2>&1 | head -5
-# 或直接 build 驗證
-npm run build 2>&1 | tail -10
-```
+# 確認路由全部註冊
+python -c "from main import app; routes=[r.path for r in app.routes]; print(len(routes),'routes'); print(routes)"
 
-### 版本號命名規則（嚴格遵守）
-| 類型 | 增量 | 範例 |
-|------|------|------|
-| Bug fix / Hotfix | +0.0.1 | V1.0.0 → V1.0.1 |
-| 新功能 / 新欄位 | +0.1.0，patch 歸零 | V1.0.0 → V1.1.0 |
-| 大改版 / 架構重構 | +1.0.0 | V1.0.0 → V2.0.0 |
+# 前端 build 測試（打包前必跑）
+cd frontend && npm run build
 
-版本號要同時更新：`README.md`、`CLAUDE.md`（本檔）、`frontend/src/App.jsx` 內的 title 或 version 常數。
+# 找不該存在的 debug 訊息
+grep -rn "console.log" frontend/src/ || true
 
-### 命名規則（嚴格遵守）
-- zip 檔名：`switch-V1.X.X.zip`
-- zip 內資料夾名：`switch/`（不含版本號）
-- Artifact 預覽檔名：`switch-V1.X.X.jsx`
-
-### 打包流程（每次，一定產出兩個檔案）
-```bash
-cd /home/claude
-VER="V1.X.X"
-# 1. 更新版本號（README.md, CLAUDE.md）
-# 2. 語法驗證（見上方）
-# 3. 複製為 switch/（不含版本號）
-cp -r switch-vault switch
-# 4. 打包
-zip -r switch-${VER}.zip switch/ \
-  --exclude "switch/frontend/node_modules/*" \
-  --exclude "switch/frontend/dist/*" \
-  --exclude "switch/__pycache__/*" \
-  --exclude "switch/*.db"
-cp switch-${VER}.zip /mnt/user-data/outputs/
-# 5. 產出 Artifact 預覽版
-cp switch-vault/frontend/src/App.jsx /mnt/user-data/outputs/switch-${VER}.jsx
-# 6. 清理暫存資料夾
-rm -rf switch
-# 7. present_files 同時給兩個檔案
+# 部署後驗證（替換為實際 URL）
+curl https://switch-production-13a3.up.railway.app/api/config
+curl "https://switch-production-13a3.up.railway.app/api/gamer-search?q=pikmin"
+curl "https://switch-production-13a3.up.railway.app/api/admin/gamer-debug?q=pokopia"
 ```
 
 ---
 
-## 二、專案架構
+## 六、版本歷程（最近 10 版）
 
-```
-switch-vault/
-├── main.py              # FastAPI 後端（API + 靜態服務）
-├── requirements.txt     # Python 依賴
-├── Dockerfile           # 多階段 build（Node → Python）
-├── railway.toml         # Railway 部署設定
-├── README.md            # 部署說明
-├── CLAUDE.md            # 本檔
-└── frontend/
-    ├── index.html       # PWA 入口
-    ├── vite.config.js   # dev proxy: /api → localhost:8000
-    ├── package.json
-    ├── public/
-    │   └── manifest.json
-    └── src/
-        ├── main.jsx     # React 入口
-        └── App.jsx      # 主元件（目前單檔）
-```
-
-### API 路由一覽
-| Method | Path | 說明 | 需 PIN |
-|--------|------|------|--------|
-| GET | /api/games | 取得所有遊戲 | ✗ |
-| POST | /api/games | 新增遊戲 | ✅ |
-| DELETE | /api/games/{id} | 刪除遊戲 | ✅ |
-| GET | /api/borrows | 取得所有借出紀錄 | ✗ |
-| POST | /api/borrows | 新增借出 | ✅ |
-| PATCH | /api/borrows/{id}/return | 確認歸還 | ✅ |
-| GET | /api/config | 取得 RAWG API Key | ✗ |
-
----
-
-## 三、React 開發規則
-
-### 本專案用 React，以下 DEV-GUIDELINES 條目**不適用**
-- `data-action` + event delegation → React 直接用 `onClick`，不需 delegation
-- `innerHTML` 注入 → 本專案不使用 innerHTML
-- Brace 平衡計算 → JSX 由 Vite/Babel 編譯，語法錯誤會直接 build 失敗
-
-### ✅ 本專案適用的 JS 規則
-
-**函數修改原則（完整替換）**
-```jsx
-// ❌ 拼貼修改（易造成 brace 不平衡）
-// 只修改函數中間幾行
-
-// ✅ 完整替換整個函數
-async function submitBorrow() {
-  // 完整的函數體
-}
-```
-
-**重複 const 宣告防範（BUG-E 對應）**
-- 修改 `App.jsx` 前先確認 state 宣告，避免 `useState` 重複
-- 新增 state 前用 `grep` 確認名稱不衝突：
-```bash
-grep "useState\|const \[" frontend/src/App.jsx | head -20
-```
-
-**`</script>` 拆寫規則（BUG-F 延伸）**
-- 本專案為 JSX，無此問題，但 `index.html` 若需嵌入 JS 仍適用
-
----
-
-## 四、後端規則（FastAPI）
-
-### API 修改時確認
-```bash
-# 修改 main.py 後
-python -m py_compile main.py && echo "Syntax OK"
-
-# 確認 endpoint 沒衝突
-grep "@app\." main.py
-```
-
-### SQLite 資料遷移規則
-> 對應 DEV-GUIDELINES BUG-H（DEFAULT 資料更新對已存資料無效）
-
-**Railway Volume 上的 SQLite 在 redeploy 後依然存在**，欄位若有異動需加遷移：
-
-```python
-# main.py 的 init_db() 中，新增欄位用 ALTER TABLE 而非重建
-def init_db():
-    conn = get_db()
-    # 建表（新部署）
-    conn.execute("CREATE TABLE IF NOT EXISTS games (...)")
-    
-    # 欄位遷移（舊部署升級）
-    try:
-        conn.execute("ALTER TABLE games ADD COLUMN new_field TEXT")
-    except:
-        pass  # 已存在則忽略
-    conn.commit()
-```
-
-**規則**：任何 DB schema 變更，必須問：
-> 「Railway Volume 上已有的資料庫會怎樣？」→ 必要時寫 ALTER TABLE。
-
----
-
-## 五、環境變數
-
-| 變數 | 必填 | 預設值 | 說明 |
-|------|------|--------|------|
-| `ADMIN_PIN` | ✅ | `1234` | 管理員 PIN（務必修改）|
-| `RAWG_API_KEY` | 建議 | `""` | 遊戲封面搜尋 API |
-| `DB_PATH` | ✅ | `/data/switch_vault.db` | SQLite 路徑 |
-
----
-
-## 六、部署位置
-
-| 項目 | 位址 |
+| 版本 | 重點 |
 |------|------|
-| GitHub Repo | https://github.com/Sela1227/switch |
-| Railway URL | https://switch-production-13a3.up.railway.app |
+| V1.14.0 | 對齊 SELA Starter Kit：補 CLAUDE.md 章法 / README 品牌格式 / .gitignore / favicon 套組 |
+| V1.13.26 | 編號移至右下角；刪除加確認；借出後回詳情 modal；modal 關閉重置狀態 |
+| V1.13.25 | 多個 UX 修正：複製遊戲功能、儲存自動關閉 |
+| V1.13.23 | gamer_search 裝飾器修復（422 bug），acg keyword 參數，og:title 取正確名稱 |
+| V1.13.19 | 搜尋帶平台參數過濾非 Switch 結果 |
+| V1.13.17 | 修 @app.get 誤掛 clean_gamer_name；搜尋改純巴哈中文直搜 |
+| V1.13.13 | fetch acgDetail 取 og:title + og:image；三層退回搜尋策略 |
+| V1.13.10 | 並行 fetch atmItem 取真正 ACG sn；封面 URL 正確 |
+| V1.12.9 | 即時搜尋巴哈商城取中文名+封面；封面 URL 規律解析 |
+| V1.12.0 | 多用戶架構；探索頁籤；跨用戶借用申請；公開/私人設定 |
+
+> V1.0.0–V1.11.x：單用戶收藏管理基礎建設（RAWG/IGDB 搜尋、巴哈名稱庫、卡片 UI 迭代）
 
 ---
 
-## 七、Railway 部署 Checklist
+## 七、下版候選工作
 
-```
-□ Railway Volume 掛載到 /data
-□ ADMIN_PIN 已設定（非預設 1234）
-□ RAWG_API_KEY 已設定
-□ DB_PATH=/data/switch_vault.db
-□ railway.toml healthcheckPath = "/api/config"
-□ Dockerfile 多階段 build 正常
-```
+1. **Google OAuth 登入** — 現在 userId 用 localStorage，架構已預留（`users` 表已建），串接後只需把 `myUserId()` 改為 OAuth token 解碼的 sub，其餘邏輯不動
+2. **借出提醒推播**（LINE Notify 或 Web Push）— 逾期遊戲自動通知借出者
+3. **搜尋支援英文關鍵字時自動查 RAWG** — 現在純巴哈中文，英文遊戲名（如 indie 遊戲）找不到
+4. **封面 base64 超過 5MB 警告** — 防止 Railway Volume 被大量 base64 撐爆
+5. **IGDB 串接恢復** — 直式高品質封面（dev.twitch.tv 申請，需開 2FA）
 
 ---
 
-## 八、版本歷程
+## 八、升版必讀
 
-| 版本 | 日期 | 內容 |
-|------|------|------|
-| V1.0.0 | 2026-04-18 | 初始版本：收藏管理、借出追蹤、逾期警示、PIN 管理員 |
+### V1.14.0 部署動作
+- [ ] 推 main（僅 .gitignore / CLAUDE.md / README.md / favicon 更動，無 DB schema 變更）
+- [ ] 等待 Railway 重新部署（約 3-5 分鐘）
+- [ ] 部署後測：訪問首頁確認 favicon 顯示正確
 
-| V1.13.25 | 2026-04-18 | 卡片完整邊框 + 名稱/平台/好玩度顯示 |
-| V1.13.25 | 2026-04-18 | 詳情可編輯名稱/平台/類別中文；卡片增加微格(5欄) |
-| V1.13.25 | 2026-04-18 | 格數 4/6/8/12；卡片緊湊；UI 字體加大 |
-| V1.13.25 | 2026-04-18 | 平台篩選依 ownedPlatform；卡牌風格設計 |
-| V1.13.25 | 2026-04-18 | 搜尋列表緊湊化；版本選擇平台色；編號badge重設計 |
-| V1.13.25 | 2026-04-18 | 詳情modal緊湊化；編號badge更明顯 |
-| V1.13.25 | 2026-04-18 | 編號右下角更明顯；按鈕重組成一列 |
-| V1.13.25 | 2026-04-18 | GameCard 重設計，封面乾淨，資訊區獨立不重疊 |
-| V1.13.25 | 2026-04-18 | Modal置中；借出紀錄展開/刪除；手動新增+封面上傳 |
-| V1.13.25 | 2026-04-18 | 修復 Railway 啟動失敗；DB路徑自動 fallback |
-| V1.13.25 | 2026-04-18 | 編號移左上有框；好玩度移右上透明框 |
-| V1.13.25 | 2026-04-18 | 手機UI重整；編號藍底白框正方形 |
-| V1.13.25 | 2026-04-18 | Header不換行；編號真正方形；資訊區比例縮放 |
-| V1.13.25 | 2026-04-18 | 遊戲詳情可更換封面（搜尋或上傳）|
-| V1.13.25 | 2026-04-18 | SELA logo；更名；欄數6/9/12；換封面獨立modal |
-| V1.13.25 | 2026-04-18 | 手機大/中/小=2/4/6欄，桌機=6/9/12欄 |
-| V1.13.25 | 2026-04-18 | 多用戶架構；探索頁籤；跨用戶借用申請；公開/私人設定 |
-| V1.13.25 | 2026-04-18 | 共用遊戲目錄；搜尋優先顯示收藏庫；一鍵導入 |
-| V1.13.25 | 2026-04-18 | 目錄導入允許重複(confirm)；每份獨立可自訂封面 |
-| V1.13.25 | 2026-04-18 | 社群封面庫；上傳可分享；換封面 tab 切換 |
-| V1.13.25 | 2026-04-18 | 加入收藏時自動翻譯為繁中遊戲名稱 |
-| V1.13.25 | 2026-04-18 | 加入收藏優先查任天堂台灣官方中文名，再 Claude 翻譯 |
-| V1.13.25 | 2026-04-18 | 任天堂台灣官方名查詢改用Claude知識庫；第三方遊戲Claude通用翻譯 |
-| V1.13.25 | 2026-04-18 | 巴哈商城爬蟲+名稱庫；翻譯三段退回；設定頁可觸發 |
-| V1.13.25 | 2026-04-18 | 爬蟲策略改強健版+debug endpoint；換封面加URL輸入 |
-| V1.13.25 | 2026-04-18 | 即時搜尋巴哈商城取中文名+封面；封面URL規律解析 |
-| V1.13.25 | 2026-04-18 | 設定頁新增巴哈搜尋測試，即時看封面有沒有抓到 |
-| V1.13.25 | 2026-04-18 | 改搜 acg.gamer.com.tw；試 PNG/JPG；修中文 URL 編碼 |
-| V1.13.25 | 2026-04-18 | 卡片封面改 contain+150%，巴哈圖片不再裁切 |
-| V1.13.25 | 2026-04-18 | 巴哈封面優先；清理[Switch]前綴 |
-| V1.13.25 | 2026-04-18 | 搜尋同時查巴哈，結果最上方顯示巴哈中文名+封面 |
-| V1.13.25 | 2026-04-19 | 用翻譯後的英文名搜巴哈，確保能找到 |
-| V1.13.25 | 2026-04-19 | 搜巴哈改用buy主站；中英文都試；加debug log |
-| V1.13.25 | 2026-04-19 | 修 gamer-search syntax error；前端中英文都試 |
-| V1.13.25 | 2026-04-19 | 搜尋改純巴哈；不用RAWG/Claude；中文直搜多筆 |
-| V1.13.25 | 2026-04-19 | 封面直接從HTML抓img；名稱清理購物資訊 |
-| V1.13.25 | 2026-04-19 | 並行fetch atmItem取真正ACG sn；封面URL正確 |
-| V1.13.25 | 2026-04-19 | 改搜 acg.gamer.com.tw 作品庫；buy作退路 |
-| V1.13.25 | 2026-04-19 | 強化 debug endpoint，可看實際 HTML 連結 |
-| V1.13.25 | 2026-04-19 | 從 acgDetail 頁取正確名稱(og:title)+封面(og:image) |
-| V1.13.25 | 2026-04-19 | acg搜尋改用keyword參數（找作品正確路徑）|
-| V1.13.25 | 2026-04-19 | gamer_search 改直接循環+詳細log，排查空結果 |
-| V1.13.25 | 2026-04-19 | 修 gamer-search 少了 @app.get 裝飾器 |
-| V1.13.25 | 2026-04-19 | 修 @app.get 裝飾器誤掛到 clean_gamer_name |
-| V1.13.25 | 2026-04-19 | addGameFromGamer 帶入搜尋時選的平台 |
-| V1.13.25 | 2026-04-19 | gamer-search 加平台過濾；排除非Switch結果 |
-| V1.13.25 | 2026-04-19 | 卡片遊戲名字體加大 |
-| V1.13.25 | 2026-04-19 | 上傳封面自動裁切白邊 |
-| V1.13.25 | 2026-04-19 | 白邊裁切改用220閾值+95%多數判斷 |
-| V1.13.25 | 2026-04-19 | 儲存後自動關閉遊戲資訊 modal |
-| V1.13.25 | 2026-04-19 | 遊戲資訊加 📋 複製按鈕，可填或跳過編號 |
-| V1.13.25 | 2026-04-19 | 修多個UX：刪除確認、借出後回詳情、關modal重置狀態、搜尋框清空 |
+### Railway 環境變數（必須設定）
+| 變數 | 說明 |
+|------|------|
+| `ADMIN_PIN` | 管理員 PIN（目前 auth 已停用，未來啟用時需要） |
+| `DB_PATH` | `/data/switch_vault.db`（Railway Volume 掛載點）|
+| `RAWG_API_KEY` | RAWG.io API key（搜尋封面用）|
+
+---
+
+## 九、一句話總結
+
+V1.14.0 完成 SELA Starter Kit 對齊（CLAUDE.md 章法 / README 品牌格式 / .gitignore / favicon），核心功能已可用（巴哈中文搜尋 + 封面 + 多用戶借用）；下版第一優先是串接 Google OAuth 讓多用戶身分識別從 localStorage 升級為正式登入。
